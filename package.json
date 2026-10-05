@@ -1,0 +1,39 @@
+{
+  "name": "autoreuploader",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Pokemon Brick Bronze AutoReuploader: Roblox experience automation, ProductBridge, codes API, health monitor.",
+  "main": "cli/index.js",
+  "bin": {
+    "autoreuploader": "./bin/autoreuploader.js"
+  },
+  "scripts": {
+    "server": "node server/index.js",
+    "start": "node server/index.js",
+    "cli": "node cli/index.js --reupload",
+    "fullupload": "node cli/index.js --fullupload",
+    "normalupload": "node cli/index.js --normalupload",
+    "configureexperience": "node cli/index.js --configureexperience",
+    "pushplaceids": "node cli/index.js --pushplaceids",
+    "rbxlupload": "node cli/index.js --rbxlupload",
+    "addfriends": "node cli/index.js --addfriends",
+    "grantpermissions": "node cli/index.js --grantpermissions",
+    "reupload": "node cli/index.js --reupload",
+    "service": "node cli/index.js --service",
+    "channelstatusservice": "node cli/index.js --channelstatusservice",
+    "add-backup-account": "node cli/index.js --add-backup-account",
+    "test": "node --check index.js && node --check cli/index.js && node --check bin/autoreuploader.js && node --check src/shared/robloxClient.js && node --check cli/reuploader.js && node --check cli/permissions.js && node --check cli/rbxlUploadPatch.js && node --check server/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.21.2",
+    "fzstd": "^0.1.1",
+    "lz4-browser": "^1.7.0",
+    "playwright": "^1.59.1",
+    "rozod": "^6.5.1",
+    "sharp": "^0.33.5",
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,3 @@
+local BUILD_STAMP = "__ARMORY_STAMP__"
+
+return BUILD_STAMP

@@ -1,0 +1,155 @@
+{
+  "friendAutomation": {
+    "enabled": true
+  },
+  "permissions": {
+    "manualFallback": true
+  },
+  "unfriendAfterGrant": {
+    "enabled": true
+  },
+  "studioLaunch": {
+    "enabled": true,
+    "studioPath": "C:\\Users\\Username\\AppData\\Local\\Roblox Studio\\RobloxStudioBeta.exe"
+  },
+  "accountPool": {
+    "primary": {
+      "name": "Creator Account",
+      "experienceId": 1234567890,
+      "isGroup": false,
+      "groupId": null,
+      "groupOwnerUserId": null,
+      "groupOwnerName": "Group owner (for logs)",
+      "groupOwnerCookie": "PASTE_GROUP_OWNER_ROBLOSECURITY_WHEN_isGroup_TRUE_AND_OWNER_DIFFERS_FROM_PRIMARY",
+      "userId": 1234567890,
+      "cookie": "PASTE_ACCOUNT_ROBLOSECURITY_HERE",
+      "apiKey": "PASTE_USER_OPEN_CLOUD_API_KEY_WITH_UNIVERSE_PLACES_WRITE",
+      "groupApiKey": "PASTE_GROUP_OPEN_CLOUD_API_KEY_WHEN_isGroup_TRUE_UNIVERSE_PLACES_WRITE"
+    },
+    "backups": [
+      {
+        "name": "Backup Account",
+        "experienceId": 1234567890,
+        "isGroup": false,
+        "groupId": null,
+        "groupOwnerUserId": null,
+        "groupOwnerName": "Group owner (for logs)",
+        "groupOwnerCookie": "PASTE_GROUP_OWNER_ROBLOSECURITY_WHEN_isGroup_TRUE_AND_OWNER_DIFFERS_FROM_PRIMARY",
+        "userId": 1234567890,
+        "cookie": "PASTE_ACCOUNT_ROBLOSECURITY_HERE",
+        "apiKey": "PASTE_ACCOUNT_API_KEY_HERE",
+        "groupApiKey": "PASTE_GROUP_OPEN_CLOUD_API_KEY_WHEN_isGroup_TRUE"
+      }
+    ]
+  },
+  "experience": {
+    "name": "[⭐️] Pokemon Brick Bronze: Project Name",
+    "description": "🌍 Explore the world of Roria in a massive creature-catching RPG!\n\nCapture, train, and battle powerful creatures as you build your ultimate team. Travel across unique regions, discover rare encounters, and uncover the mysteries hidden throughout your journey.\n\n⚔️ Features\n• Catch and train a wide variety of creatures\n• Explore a story-driven adventure\n• Trade and play with friends\n\n🔗 Community Group:\nhttps://www.roblox.com/communities/1/Project-Name#!/about\n\n🎁 Community Rewards\nJoin the group above for exclusive bonuses:\n• Extra PC storage\n• Exp. Share and charms\n• Increased shiny & legendary chances\n\n🎉 Community Server Perks\nJoin via group page for more bonuses:\n• Redeem exclusive codes\n• Giveaways and events\n• Bug reports & updates\n\n📱 Play Anywhere\nAvailable on Desktop, Mobile, and Console\n\n👍 Like and ⭐ Favorite to support the game!\n\n🏷️ Pokemon, Pokemon Brick Bronze, Project Bronze, Project Pokemon, Pikachu, Project Bronze Forever, Pokemon Bronze Forever",
+    "rbxlPath": "./game.rbxl",
+    "uploadStamp": {
+      "enabled": true,
+      "marker": "__ARMORY_STAMP__"
+    },
+    "iconPath": "./icon.png",
+    "thumbnailPath": "./thumbnail.png",
+    "templatePlaceId": 95206881,
+    "enableMicrophone": true,
+    "maxPlayers": 40,
+    "allowCopying": false,
+    "socialSlotType": "Empty",
+    "placeAccessControl": "FullyOpen",
+    "places": {
+      "Main": {
+        "name": "[⭐️] Pokemon Brick Bronze: Project Name"
+      },
+      "Battle": {
+        "name": "Project Name: Battle"
+      },
+      "Trade": {
+        "name": "Project Name: Trade"
+      }
+    },
+    "questionnaire": {
+      "enabled": true,
+      "answerStrategy": "firstOption"
+    }
+  },
+  "experienceBackups": [],
+  "backupState": {
+    "activeIndex": -1,
+    "activeName": "",
+    "activeUniverseId": ""
+  },
+  "monitor": {
+    "healthUrl": "https://www.roblox.com/games/Your-Place-ID-Here",
+    "intervalMs": 600000,
+    "discordChannelId": "LINK_CHANNEL_ID_HERE",
+    "discordAnnouncementChannelId": "DISCORD_ANNOUNCEMENT_CHANNEL_ID_HERE",
+    "discordAnnouncementMention": "@everyone",
+    "discordPlayerCountChannelId": "PLAYER_COUNT_CHANNEL_ID_HERE",
+    "discordStatusChannelId": "GAME_STATUS_CHANNEL_ID_HERE",
+    "discordBotToken": "DISCORD_BOT_TOKEN_HERE"
+  },
+  "gameIntegration": {
+    "publicBaseUrl": "https://autoreuploader-production.up.railway.app"
+  },
+  "placeIds": {
+    "outputPath": "/data/placeids.json",
+    "git": {
+      "enabled": true,
+      "repositoryPath": "",
+      "remoteRawUrl": "https://raw.githubusercontent.com/Username/PlaceIdsRepo/main/placeids.json",
+      "commitMessage": "Update place IDs",
+      "githubOwner": "Username",
+      "githubRepo": "PlaceIdsRepo",
+      "githubBranch": "main",
+      "githubFilePath": "placeids.json"
+    }
+  },
+  "assetAccounts": [
+    {
+      "name": "Asset Account 1",
+      "userId": 1234567890,
+      "cookie": "PASTE_ASSET_ACCOUNT_COOKIE_HERE",
+      "apiKey": "PASTE_ASSET_ACCOUNT_API_KEY_HERE",
+      "isGroup": false,
+      "groupId": null,
+      "groupApiKey": "",
+      "audioAssets": [],
+      "animationAssets": []
+    },
+    {
+      "name": "Asset Account 2",
+      "userId": 1234567890,
+      "cookie": "PASTE_ASSET_ACCOUNT_COOKIE_HERE",
+      "apiKey": "PASTE_ASSET_ACCOUNT_API_KEY_HERE",
+      "isGroup": false,
+      "groupId": null,
+      "groupApiKey": "",
+      "audioAssets": [],
+      "animationAssets": []
+    },
+    {
+      "name": "Asset Account 3",
+      "userId": 1234567890,
+      "cookie": "PASTE_ASSET_ACCOUNT_COOKIE_HERE",
+      "apiKey": "PASTE_ASSET_ACCOUNT_API_KEY_HERE",
+      "isGroup": false,
+      "groupId": null,
+      "groupApiKey": "",
+      "audioAssets": [],
+      "animationAssets": []
+    },
+    {
+      "name": "Asset Account 4",
+      "userId": 1234567890,
+      "cookie": "PASTE_ASSET_ACCOUNT_COOKIE_HERE",
+      "apiKey": "PASTE_ASSET_ACCOUNT_API_KEY_HERE",
+      "isGroup": false,
+      "groupId": null,
+      "groupApiKey": "",
+      "audioAssets": [],
+      "animationAssets": []
+    }
+  ]
+}
