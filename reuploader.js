@@ -151,6 +151,7 @@ const MONITOR_KEY_ORDER = [
   'retryCount',
   'retryDelayMs',
   'confirmDelayMs',
+  'discordEventChannelId',
   'discordChannelId',
   'discordPlayerCountChannelId',
   'discordStatusChannelId',
@@ -1347,24 +1348,17 @@ async function configurePlace(client, placeId, config) {
   });
 }
 
-function isRobloxPrivateServerSettingsError(error) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const m = error.message;
-  return /private server settings/i.test(m) || (/\b500\b/.test(m) && /"code"\s*:\s*27\b/.test(m));
-}
-
 async function configureUniverse(client, universeId, experience, config) {
   const desiredAvatarType = 'MorphToPlayerChoice'; // R6 + R15 (player choice)
   try {
-    const configUrl = `https://develop.roblox.com/v2/universes/${universeId}/configuration`;
-    const basePayload = {
+    await client.patch(`https://develop.roblox.com/v2/universes/${universeId}/configuration`, {
       name: experience.name,
       description: experience.description,
       universeAvatarType: desiredAvatarType,
       playerAvatarType: desiredAvatarType,
       universeAnimationType: 'PlayerChoice',
+      allowPrivateServers: false,
+      privateServerPrice: null,
       isArchived: false,
       permissions: {
         IsThirdPartyTeleportAllowed: true,
@@ -1372,24 +1366,7 @@ async function configureUniverse(client, universeId, experience, config) {
         IsThirdPartyPurchaseAllowed: true,
         IsClientTeleportAllowed: true
       }
-    };
-    try {
-      await client.patch(configUrl, {
-        ...basePayload,
-        allowPrivateServers: false,
-        privateServerPrice: null
-      });
-    } catch (err) {
-      // Roblox sometimes 500s (code 27) on the private-server fields (common for group-owned
-      // experiences / universes where private servers are already off). Retry without them.
-      if (!isRobloxPrivateServerSettingsError(err)) {
-        throw err;
-      }
-      console.log(
-        `[WARN] Roblox rejected private server settings for universe ${universeId} (500 code 27); retrying configuration without them.`
-      );
-      await client.patch(configUrl, basePayload);
-    }
+    });
   } catch (err) {
     if (!isRobloxUnauthorized(err)) {
       throw err;
@@ -2709,6 +2686,73 @@ function updateDiscordLastGameLinkMessageIdInConfigFile(configPath, messageId) {
   fs.writeFileSync(resolvedPath, `${stringifyConfigWithInlineAssetArrays(data)}\n`);
 }
 
+async function postDiscordMonitorNotification(config, type, details = {}) {
+  const botToken = String(config.monitor?.discordBotToken || '').trim();
+  // By default, use the existing game-link channel so no extra Discord channel ID is required.
+  const channelId = String(
+    config.monitor?.discordEventChannelId ||
+    config.monitor?.discordChannelId ||
+    ''
+  ).trim();
+
+  if (!botToken || !channelId) {
+    return;
+  }
+
+  const gameName = String(config.experience?.name || 'Roblox Game').trim() || 'Roblox Game';
+  const gameLink = String(details.gameLink || '').trim();
+  let content = '';
+
+  if (type === 'down') {
+    content =
+      `🚨 **GAME DOWN**\n` +
+      `**${gameName}** is currently down or unhealthy.\n` +
+      `🔄 AutoReuploader is starting the automatic reupload...`;
+  } else if (type === 'reuploading') {
+    content =
+      `🔄 **REUPLOADING GAME**\n` +
+      `**${gameName}** is being automatically reuploaded.\n` +
+      `⏳ Please wait...`;
+  } else if (type === 'reuploaded') {
+    content =
+      `✅ **GAME REUPLOADED**\n` +
+      `**${gameName}** has been successfully reuploaded and is back online.\n` +
+      (gameLink ? `🎮 **Game Link:** ${gameLink}` : '');
+  } else if (type === 'failed') {
+    content =
+      `❌ **REUPLOAD FAILED**\n` +
+      `**${gameName}** could not be reuploaded successfully.\n` +
+      `⚠️ AutoReuploader will continue monitoring the game.`;
+  } else {
+    return;
+  }
+
+  try {
+    const response = await discordBotApiRequestWithRateLimitRetry(
+      botToken,
+      `/channels/${encodeURIComponent(channelId)}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ content })
+      }
+    );
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(
+        `Discord notification failed: ${response.status} ${response.statusText} ${body}`
+      );
+    }
+
+    console.log(`[SUCCESS] Sent Discord ${type} notification to channel ${channelId}.`);
+  } catch (err) {
+    console.log(`[WARN] Failed to send Discord ${type} notification: ${err.message}`);
+  }
+}
+
 async function updateDiscordVoiceChannelsAtUploadStart(config) {
   await updateDiscordVoiceChannelPlayerCount(config, 0);
   await updateDiscordStatusChannel(config, 'reuploading');
@@ -2836,7 +2880,7 @@ async function postGameLinkToDiscordBot(config, mainPlaceId, { configPath } = {}
         'content-type': 'application/json'
       },
       body: JSON.stringify({
-        content: `# GAME LINK\n${gameLink}`
+        content: `# GAME LINK — REUPLOADED\n✅ **Game reuploaded successfully!**\n🎮 ${gameLink}`
       })
     });
 
@@ -3131,6 +3175,11 @@ export async function runNormalUploadPipeline(config, { configPath } = {}) {
     const mainPlaceId = requireValue(placeIds?.Main, 'Main place id after normal upload');
     updateMonitorHealthUrlInConfigFile(configPath, mainPlaceId);
     await postGameLinkToDiscordBot(config, mainPlaceId, { configPath });
+    spawnDiscordTask('reupload success notification', async () => {
+      await postDiscordMonitorNotification(config, 'reuploaded', {
+        gameLink: buildRobloxGameShareUrl(mainPlaceId, config.experience?.name)
+      });
+    });
     await updateDiscordVoiceChannelsAfterSuccessfulUpload(config);
   }
 
@@ -3258,6 +3307,11 @@ export async function runFullUploadPipeline(config, { configPath } = {}) {
     const mainPlaceId = requireValue(placeIds?.Main, 'Main place id after upload');
     updateMonitorHealthUrlInConfigFile(configPath, mainPlaceId);
     await postGameLinkToDiscordBot(config, mainPlaceId, { configPath });
+    spawnDiscordTask('reupload success notification', async () => {
+      await postDiscordMonitorNotification(config, 'reuploaded', {
+        gameLink: buildRobloxGameShareUrl(mainPlaceId, config.experience?.name)
+      });
+    });
     await updateDiscordVoiceChannelsAfterSuccessfulUpload(config);
   }
 
@@ -3397,6 +3451,7 @@ export async function runMonitorService(configPath) {
   console.log(`[INFO] Monitor service started (config: ${resolvedConfigPath}). Ctrl+C to stop.`);
 
   let uploadSuspendedModerationNoBackups = false;
+  let discordGameDownNotified = false;
 
   while (true) {
     let config;
@@ -3420,6 +3475,7 @@ export async function runMonitorService(configPath) {
         console.log('[INFO] Health OK again; cleared upload suspension (moderation / no-backup guard).');
       }
       uploadSuspendedModerationNoBackups = false;
+      discordGameDownNotified = false;
     }
     const monitorUniverseId =
       config.accountPool?.primary?.experienceId ||
@@ -3466,11 +3522,21 @@ export async function runMonitorService(configPath) {
           console.log(`[INFO] Rotated primary uploader account to backup: ${rotatedTo.name || rotatedTo.userId}`);
         }
 
+        if (!discordGameDownNotified) {
+          discordGameDownNotified = true;
+          spawnDiscordTask('game-down notification', async () => {
+            await postDiscordMonitorNotification(config, 'down');
+          });
+        }
+
         console.log('[INFO] Health checks failed after retries; running normal upload pipeline...');
         try {
           await runNormalUploadPipeline(uploadConfig, { configPath: resolvedConfigPath });
         } catch (err) {
           console.error('[FAIL] Normal upload pipeline error:', err);
+          spawnDiscordTask('reupload failure notification', async () => {
+            await postDiscordMonitorNotification(config, 'failed');
+          });
           if (isRobloxAccountModerationError(err) && !(uploadConfig.accountPool?.backups?.length)) {
             uploadSuspendedModerationNoBackups = true;
             console.log(
