@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pokemon Brick Bronze AutoReuploader</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="login-gate" class="login-gate">
+    <form id="login-form" class="login-card">
+      <h1>Pokemon Brick Bronze AutoReuploader</h1>
+      <p class="hint">Enter the dashboard password to continue.</p>
+      <label for="login-password">Password</label>
+      <input id="login-password" type="password" autocomplete="current-password" required />
+      <p id="login-error" class="login-error hidden"></p>
+      <button type="submit" class="primary">Sign in</button>
+    </form>
+  </div>
+
+  <div id="dashboard-app" class="locked">
+  <header>
+    <div>
+      <h1>Pokemon Brick Bronze AutoReuploader</h1>
+      <p class="subtitle">Commands, configuration, assets, codes, products, and live task output.</p>
+    </div>
+    <div class="header-actions">
+      <button type="button" id="sign-out" class="ghost">Sign out</button>
+      <button type="button" id="sign-out-all" class="ghost danger">Sign out all devices</button>
+      <div id="auth-status" class="pill">Dashboard</div>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button type="button" class="tab active" data-tab="commands">Commands</button>
+    <button type="button" class="tab" data-tab="config">Configuration</button>
+    <button type="button" class="tab" data-tab="assets">Assets</button>
+    <button type="button" class="tab" data-tab="codes">Codes</button>
+    <button type="button" class="tab" data-tab="products">T-Shirts</button>
+    <button type="button" class="tab" data-tab="tasks">Tasks</button>
+  </nav>
+
+  <main>
+    <section class="tab-panel active" id="panel-commands">
+      <div class="split">
+        <div class="panel">
+          <h2>Quick run</h2>
+          <p class="hint">Type a command name (e.g. <code>reupload</code>)</p>
+          <form id="console-form" class="console-form">
+            <input id="console-input" type="text" placeholder="reupload" autocomplete="off" spellcheck="false" />
+            <button type="submit">Run</button>
+          </form>
+          <h3>All utilities</h3>
+          <div id="command-buttons" class="command-grid"></div>
+        </div>
+        <div class="panel">
+          <h2>Live console</h2>
+          <p class="hint">Persists across browsers and sessions until the next deploy.</p>
+          <div class="actions">
+            <button type="button" id="clear-console" title="Scroll to top — console persists until the next deploy">Scroll to top</button>
+            <button type="button" id="refresh-tasks">Refresh tasks</button>
+          </div>
+          <pre id="live-console" class="console"></pre>
+          <h3>Manual prompt</h3>
+          <div id="prompt-box" class="prompt idle">No pending action.</div>
+          <div id="prompt-input-row" class="prompt-input-row hidden">
+            <input type="text" id="prompt-input" autocomplete="off" placeholder="Type your answer…" />
+            <button type="button" id="prompt-submit" disabled>Submit</button>
+          </div>
+          <div class="actions">
+            <button type="button" id="prompt-continue" disabled>Continue</button>
+            <button type="button" id="prompt-quit" disabled>Abort</button>
+          </div>
+          <h3>Browser</h3>
+          <div id="browser-sessions"></div>
+          <img id="browser-shot" alt="Browser screenshot" />
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="panel-config">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Configuration</h2>
+          <div class="actions">
+            <button type="button" id="reload-config">Reload</button>
+            <button type="button" id="save-config" class="primary">Save changes</button>
+          </div>
+        </div>
+        <p class="hint">Account pools are grouped by name. Edit fields inside each account card, then save.</p>
+        <p id="config-path" class="meta"></p>
+        <div class="panel placeids-panel">
+          <div class="panel-head">
+            <h3>Place IDs export</h3>
+            <div class="actions">
+              <button type="button" id="reload-placeids">Reload</button>
+              <button type="button" id="push-placeids">Push to GitHub</button>
+            </div>
+          </div>
+          <p class="hint">On Railway, IDs save to <code>/data/placeids.json</code>. Set <code>PLACEIDS_GITHUB_TOKEN</code> in Railway, then fill <strong>GitHub owner / repo / branch / file path</strong> under Configuration → <strong>Place IDs export</strong> and Save.</p>
+          <p id="placeids-meta" class="meta"></p>
+          <pre id="placeids-preview" class="console placeids-preview"></pre>
+        </div>
+        <div id="config-fields" class="config-fields"></div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="panel-assets">
+      <p id="assets-storage-note" class="hint"></p>
+      <div class="asset-grid">
+        <div class="panel asset-card" data-kind="rbxl">
+          <h2>Place file (RBXL)</h2>
+          <p class="asset-meta" id="meta-rbxl"></p>
+          <p class="asset-upload-status" id="upload-status-rbxl" aria-live="polite"></p>
+          <input type="file" accept=".rbxl,.rbxlx" data-upload="rbxl" />
+          <button type="button" data-download="rbxl">Download current</button>
+        </div>
+        <div class="panel asset-card" data-kind="icon">
+          <h2>Game icon</h2>
+          <img class="asset-preview" id="preview-icon" alt="Icon preview" />
+          <p class="asset-meta" id="meta-icon"></p>
+          <p class="asset-upload-status" id="upload-status-icon" aria-live="polite"></p>
+          <input type="file" accept="image/png" data-upload="icon" />
+          <button type="button" data-download="icon">Download current</button>
+        </div>
+        <div class="panel asset-card" data-kind="thumbnail">
+          <h2>Thumbnail</h2>
+          <img class="asset-preview" id="preview-thumbnail" alt="Thumbnail preview" />
+          <p class="asset-meta" id="meta-thumbnail"></p>
+          <p class="asset-upload-status" id="upload-status-thumbnail" aria-live="polite"></p>
+          <input type="file" accept="image/png" data-upload="thumbnail" />
+          <button type="button" data-download="thumbnail">Download current</button>
+        </div>
+        <div class="panel asset-card" data-kind="tshirt">
+          <h2>T-shirt template PNG</h2>
+          <img class="asset-preview" id="preview-tshirt" alt="T-shirt template preview" />
+          <p class="asset-meta" id="meta-tshirt"></p>
+          <p class="asset-upload-status" id="upload-status-tshirt" aria-live="polite"></p>
+          <input type="file" accept="image/png" data-upload="tshirt" />
+          <button type="button" data-download="tshirt">Download current</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="panel-codes">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Promo codes</h2>
+          <div class="actions">
+            <button type="button" id="reload-codes">Reload</button>
+            <button type="button" id="reformat-codes">Reformat Lua</button>
+            <button type="button" id="add-code">Add code</button>
+            <button type="button" id="save-codes" class="primary">Save codes</button>
+          </div>
+        </div>
+        <p class="hint">Each field is a plain input except Function, which is Lua with syntax highlighting.</p>
+        <p id="codes-meta" class="meta"></p>
+        <div id="codes-list" class="config-fields"></div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="panel-products">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>T-shirt product catalog</h2>
+          <div class="actions">
+            <button type="button" id="reload-products">Reload</button>
+          </div>
+        </div>
+        <p class="hint">Mapped dev products and uploaded shirt asset IDs (from ProductBridge).</p>
+        <div id="products-list"></div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="panel-tasks">
+      <div class="split">
+        <div class="panel">
+          <h2>Task history</h2>
+          <div id="tasks"></div>
+        </div>
+        <div class="panel">
+          <h2>Selected task log</h2>
+          <pre id="task-log"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/lua/lua.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
