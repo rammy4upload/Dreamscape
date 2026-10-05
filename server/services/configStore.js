@@ -188,68 +188,13 @@ export function getConfigFields() {
   return { path: getConfigPath(), exists: true, sections, groups };
 }
 
-function parseBulkBackupUniverseIds(raw) {
-  if (Array.isArray(raw)) {
-    raw = raw.join(',');
-  }
-  const text = String(raw ?? '').trim();
-  if (!text) return [];
-  const parts = text.split(/[,\n]+/).map((part) => part.trim()).filter(Boolean);
-  const seen = new Set();
-  return parts.map((id, index) => {
-    if (!/^\d+$/.test(id) || Number(id) <= 0) {
-      throw new Error(`Invalid backup Universe ID at position ${index + 1}: "${id}"`);
-    }
-    if (seen.has(id)) {
-      throw new Error(`Duplicate backup Universe ID: ${id}`);
-    }
-    seen.add(id);
-    return id;
-  });
-}
-
-function applyBulkBackupUniverseIds(config, raw) {
-  const ids = parseBulkBackupUniverseIds(raw);
-  const previous = Array.isArray(config.experienceBackups) ? config.experienceBackups : [];
-  config.experienceBackups = ids.map((universeId, index) => {
-    const old = previous[index] && typeof previous[index] === 'object' ? previous[index] : {};
-    return {
-      name: `Backup_${index + 1}`,
-      universeId,
-      placeIds: {
-        Main: String(old.placeIds?.Main || '').trim(),
-        Battle: String(old.placeIds?.Battle || '').trim(),
-        Trade: String(old.placeIds?.Trade || '').trim(),
-      },
-    };
-  });
-  const active = Number(config.backupState?.activeIndex);
-  if (!ids.length || !Number.isInteger(active) || active < 0 || active >= ids.length) {
-    config.backupState = {
-      ...(config.backupState || {}),
-      activeIndex: -1,
-      activeName: '',
-      activeUniverseId: '',
-    };
-  } else {
-    config.backupState.activeName = config.experienceBackups[active].name;
-    config.backupState.activeUniverseId = ids[active];
-  }
-}
-
 export function updateConfigFields(flatUpdates) {
   ensureConfigFile();
   const current = loadConfig();
   if (!current) {
     throw new Error(`Config file not found: ${getConfigPath()}`);
   }
-  const updates = { ...(flatUpdates || {}) };
-  const bulkKey = 'experienceBackupsBulk';
-  if (Object.prototype.hasOwnProperty.call(updates, bulkKey)) {
-    applyBulkBackupUniverseIds(current, updates[bulkKey]);
-    delete updates[bulkKey];
-  }
-  const merged = applyFlatConfigUpdates(current, updates);
+  const merged = applyFlatConfigUpdates(current, flatUpdates);
   saveConfig(merged);
   return getConfigFields();
 }
@@ -268,17 +213,7 @@ const POOL_ACCOUNT_FIELDS = [
   'groupApiKey',
 ];
 
-const ASSET_ACCOUNT_FIELDS = [
-  'name',
-  'userId',
-  'cookie',
-  'apiKey',
-  'isGroup',
-  'groupId',
-  'groupApiKey',
-  'audioAssets',
-  'animationAssets',
-];
+const ASSET_ACCOUNT_FIELDS = ['name', 'userId', 'cookie', 'apiKey', 'audioAssets', 'animationAssets'];
 
 const SIMPLE_SECTIONS = [
   { key: 'friendAutomation', title: 'Friend automation' },
@@ -308,8 +243,6 @@ const MONITOR_FIELDS = [
   'retryDelayMs',
   'confirmDelayMs',
   'discordChannelId',
-  'discordAnnouncementChannelId',
-  'discordAnnouncementMention',
   'discordPlayerCountChannelId',
   'discordStatusChannelId',
   'discordScanPages',
@@ -357,8 +290,6 @@ function humanizeLabel(key) {
     retryDelayMs: 'Retry delay (ms)',
     confirmDelayMs: 'Confirm delay (ms)',
     discordChannelId: 'Discord channel ID',
-    discordAnnouncementChannelId: 'Discord announcement channel ID',
-    discordAnnouncementMention: 'Discord announcement mention (@everyone or @here)',
     discordPlayerCountChannelId: 'Player count channel ID',
     discordStatusChannelId: 'Status channel ID',
     discordScanPages: 'Discord scan pages',
@@ -566,28 +497,6 @@ function buildConfigSections(config) {
       title: 'Experience',
       subtitle: exp.name || '',
       fields,
-    });
-  }
-
-  if (Array.isArray(config.experienceBackups)) {
-    const bulkValue = config.experienceBackups
-      .map((backup) => String(backup?.universeId || '').trim())
-      .filter(Boolean)
-      .join(', ');
-    sections.push({
-      id: 'experienceBackups',
-      title: 'Game Universe backups',
-      subtitle: 'Paste Universe IDs in bulk. Example: Id1, Id2, Id3',
-      fields: [
-        {
-          key: 'experienceBackupsBulk',
-          label: 'Backup Universe IDs (comma-separated)',
-          value: bulkValue,
-          multiline: true,
-          sensitive: false,
-          assetIdList: false,
-        },
-      ],
     });
   }
 

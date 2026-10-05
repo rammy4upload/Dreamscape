@@ -52,24 +52,6 @@ export function resolvePlaceIdsOutputPath(config, configPath = '') {
   return resolvePathAgainstConfigFileDir(configuredOutputPath, configPath);
 }
 
-export function writePlaceIdsFile(placeIds, config, { configPath = '' } = {}) {
-  const output = buildPlaceIdsPayload({
-    Main: String(placeIds?.Main || '').trim(),
-    Battle: String(placeIds?.Battle || '').trim(),
-    Trade: String(placeIds?.Trade || '').trim(),
-  });
-  if (!output.placeids.MainPlaceId || !output.placeids.BattlePlaceId || !output.placeids.TradePlaceId) {
-    throw new Error('Main, Battle, and Trade place IDs are required.');
-  }
-
-  const outputPathAbs = resolvePlaceIdsOutputPath(config, configPath);
-  fs.mkdirSync(path.dirname(outputPathAbs), { recursive: true });
-  const json = `${JSON.stringify(output, null, 2)}\n`;
-  fs.writeFileSync(outputPathAbs, json, 'utf8');
-  console.log(`[SUCCESS] Wrote place IDs to ${outputPathAbs}`);
-  return { path: outputPathAbs, exists: true, data: output, pushed: false, method: 'file' };
-}
-
 export function readPlaceIdsFile(config, configPath = '') {
   const filePath = resolvePlaceIdsOutputPath(config, configPath);
   if (!fs.existsSync(filePath)) {

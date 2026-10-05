@@ -794,40 +794,8 @@ async function loadPlaceIds() {
   metaEl.textContent = data.path
     ? `${data.exists ? 'Saved at' : 'Missing file:'} ${data.path}${data.error ? ` (${data.error})` : ''}`
     : '';
-  previewEl.textContent = data.data ? JSON.stringify(data.data, null, 2) : 'No placeids.json yet — enter IDs below or run a full/normal upload task.';
-  const values = {
-    Main: data.data?.placeids?.MainPlaceId || '',
-    Battle: data.data?.placeids?.BattlePlaceId || '',
-    Trade: data.data?.placeids?.TradePlaceId || '',
-  };
-  for (const [key, value] of Object.entries(values)) {
-    const input = document.getElementById(`placeid-${key.toLowerCase()}`);
-    if (input && document.activeElement !== input) input.value = value;
-  }
+  previewEl.textContent = data.data ? JSON.stringify(data.data, null, 2) : 'No placeids.json yet — run Push Place IDs or a full/normal upload task.';
 }
-
-document.getElementById('save-placeids')?.addEventListener('click', async () => {
-  const ids = {
-    Main: document.getElementById('placeid-main')?.value.trim(),
-    Battle: document.getElementById('placeid-battle')?.value.trim(),
-    Trade: document.getElementById('placeid-trade')?.value.trim(),
-  };
-  if (!Object.values(ids).every((value) => /^\d+$/.test(value || ''))) {
-    alert('Enter numeric Main, Battle, and Trade place IDs.');
-    return;
-  }
-  const response = await api('/api/dashboard/placeids', {
-    method: 'PUT',
-    body: JSON.stringify(ids),
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    alert(data.error || 'Failed to save place IDs');
-    return;
-  }
-  appendConsole('[dashboard] Place IDs saved locally on Railway. GitHub was not required.\\n');
-  loadPlaceIds();
-});
 
 document.getElementById('reload-placeids')?.addEventListener('click', loadPlaceIds);
 document.getElementById('push-placeids')?.addEventListener('click', async () => {

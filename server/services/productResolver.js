@@ -20,14 +20,7 @@ function uniqueShirtName(displayName, existingCount) {
   return `${displayName}${suffix}`.slice(0, 50);
 }
 
-async function findAvailableShirt(client, entry, userId, { groupId = '' } = {}) {
-  // Group-owned assets do not appear in the uploader user's personal inventory.
-  // Reuse an already-registered group asset instead of treating it as missing
-  // and creating a duplicate every time.
-  if (groupId && entry.shirts.length) {
-    return { shirt: entry.shirts[0], created: false };
-  }
-
+async function findAvailableShirt(client, entry, userId) {
   for (const shirt of entry.shirts) {
     const owned = await userOwnsAsset(client, userId, shirt.assetId);
     if (!owned) {
@@ -91,7 +84,7 @@ export async function resolveProductForUser({ productKey, userId, displayName, p
   saveProductStore(store);
 
   const client = createUploadClient(credentials.cookie);
-  const available = await findAvailableShirt(client, entry, userId, { groupId: credentials.groupId });
+  const available = await findAvailableShirt(client, entry, userId);
   if (available) {
     return {
       productKey,

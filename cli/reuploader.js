@@ -36,16 +36,6 @@ function coerceConfigBoolean(value, defaultValue = false) {
   return defaultValue;
 }
 
-function envBool(name, fallback = false) {
-  const raw = String(process.env[name] || '').trim().toLowerCase();
-  if (!raw) return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(raw);
-}
-
-function envSecret(name) {
-  return trimConfigSecret(process.env[name]);
-}
-
 function withPrimaryAccountApplied(config) {
   const pool = config.accountPool;
   if (!pool?.primary) {
@@ -54,33 +44,22 @@ function withPrimaryAccountApplied(config) {
 
   const primary = pool.primary;
   const next = structuredClone(config);
-  const envGroupId = envSecret('ROBLOX_GROUP_ID');
-  const envPlaceKey = envSecret('ROBLOX_PLACE_API_KEY');
-  const envGroupKey = envSecret('ROBLOX_GROUP_API_KEY');
-  const envPersonalKey = envSecret('ROBLOX_API_KEY');
-  const explicitGroupMode = String(process.env.ROBLOX_IS_GROUP || '').trim();
-  const isGroup = explicitGroupMode
-    ? envBool('ROBLOX_IS_GROUP', false)
-    : Boolean(envGroupId) || coerceConfigBoolean(primary.isGroup, false);
+  const isGroup = coerceConfigBoolean(primary.isGroup, false);
 
   next.creatorAccount = {
     ...(next.creatorAccount || {}),
     name: primary.name || next.creatorAccount?.name || 'Primary Account',
     userId: primary.userId || next.creatorAccount?.userId,
     cookie: primary.cookie || next.creatorAccount?.cookie,
-    apiKey: envPersonalKey || envPlaceKey || primary.apiKey || next.creatorAccount?.apiKey,
+    apiKey: primary.apiKey || next.creatorAccount?.apiKey,
     isGroup
   };
 
   if (isGroup) {
-    if (envGroupId) {
-      next.creatorAccount.groupId = envGroupId;
-    } else if (primary.groupId !== undefined && primary.groupId !== null && String(primary.groupId).trim() !== '') {
+    if (primary.groupId !== undefined && primary.groupId !== null && String(primary.groupId).trim() !== '') {
       next.creatorAccount.groupId = primary.groupId;
     }
-    if (envGroupKey || envPlaceKey) {
-      next.creatorAccount.groupApiKey = envGroupKey || envPlaceKey;
-    } else if (primary.groupApiKey) {
+    if (primary.groupApiKey) {
       next.creatorAccount.groupApiKey = primary.groupApiKey;
     }
     if (
@@ -173,8 +152,6 @@ const MONITOR_KEY_ORDER = [
   'retryDelayMs',
   'confirmDelayMs',
   'discordChannelId',
-  'discordAnnouncementChannelId',
-  'discordAnnouncementMention',
   'discordPlayerCountChannelId',
   'discordStatusChannelId',
   'discordScanPages',
@@ -835,9 +812,6 @@ function openCloudPlacePublishScopeSetupHint(config) {
 
 function describeOpenCloudKeySource(config, placeKey) {
   const placeConfig = config.experience?.places?.[placeKey];
-  if (isGroupOpenCloudModeEnabled(config) && envSecret('ROBLOX_GROUP_API_KEY')) return 'ROBLOX_GROUP_API_KEY (group mode)';
-  if (isGroupOpenCloudModeEnabled(config) && envSecret('ROBLOX_PLACE_API_KEY')) return 'ROBLOX_PLACE_API_KEY (group mode)';
-  if (!isGroupOpenCloudModeEnabled(config) && envSecret('ROBLOX_PLACE_API_KEY')) return 'ROBLOX_PLACE_API_KEY';
   if (placeConfig?.apiKey && trimConfigSecret(placeConfig.apiKey)) {
     return `experience.places.${placeKey}.apiKey`;
   }
@@ -919,13 +893,10 @@ function trimConfigSecret(value) {
 }
 
 function isGroupOpenCloudModeEnabled(config) {
-  const explicit = String(process.env.ROBLOX_IS_GROUP || '').trim();
-  if (explicit) return envBool('ROBLOX_IS_GROUP', false);
-  if (envSecret('ROBLOX_GROUP_ID')) return true;
-  if (envSecret('ROBLOX_GROUP_API_KEY') || envSecret('ROBLOX_PLACE_API_KEY')) return true;
   if (config.accountPool?.primary) {
     return coerceConfigBoolean(config.accountPool.primary.isGroup, false);
   }
+
   return (
     coerceConfigBoolean(config.creatorAccount?.isGroup, false) ||
     coerceConfigBoolean(config.experience?.isGroup, false) ||
@@ -963,7 +934,7 @@ function resolveExperienceGroupId(config) {
 
 function resolveUserOpenCloudApiKey(config, placeKey) {
   const placeConfig = config.experience?.places?.[placeKey];
-  const keys = [envSecret('ROBLOX_PLACE_API_KEY'), envSecret('ROBLOX_API_KEY'), placeConfig?.apiKey, config.accountPool?.primary?.apiKey, config.creatorAccount?.apiKey];
+  const keys = [placeConfig?.apiKey, config.accountPool?.primary?.apiKey, config.creatorAccount?.apiKey];
   for (const k of keys) {
     const t = trimConfigSecret(k);
     if (t) {
@@ -976,8 +947,6 @@ function resolveUserOpenCloudApiKey(config, placeKey) {
 function resolveGroupOpenCloudApiKey(config, placeKey) {
   const placeConfig = config.experience?.places?.[placeKey];
   const keys = [
-    envSecret('ROBLOX_GROUP_API_KEY'),
-    envSecret('ROBLOX_PLACE_API_KEY'),
     placeConfig?.groupApiKey,
     config.accountPool?.primary?.groupApiKey,
     config.creatorAccount?.groupApiKey,
@@ -1369,68 +1338,7 @@ async function configureExperiencePlaceAccessControl(config, universeId) {
   }
 }
 
-async function submitExperienceQuestionnaire(client, universeId, experience = {}) {
-  const settings = experience?.questionnaire || {};
-  if (settings.enabled === false) {
-    console.log(`[INFO] Experience questionnaire automation disabled for universe ${universeId}.`);
-    return false;
-  }
-
-  try {
-    const latest = await client.get(
-      `https://apis.roblox.com/experience-questionnaire/v1/questionnaires/${universeId}/latest`
-    );
-    const questionnaireId = latest?.questionnaireId;
-    if (!questionnaireId) {
-      console.log(`[WARN] No questionnaire ID returned for universe ${universeId}; continuing configuration.`);
-      return false;
-    }
-
-    const questionnaire = await client.get(
-      `https://apis.roblox.com/experience-questionnaire/v1/questionnaires/${questionnaireId}`
-    );
-    const sections = questionnaire?.questionnaire?.sections || [];
-    const answers = [];
-
-    for (const section of sections) {
-      for (const question of section?.questions || []) {
-        const options = Array.isArray(question?.options) ? question.options : [];
-        if (!question?.id || options.length === 0) {
-          continue;
-        }
-
-        // The supplied reference implementation uses the first option for each question.
-        answers.push({
-          questionId: question.id,
-          value: JSON.stringify(options[0].id)
-        });
-      }
-    }
-
-    if (!answers.length) {
-      console.log(`[WARN] Questionnaire ${questionnaireId} has no answerable questions for universe ${universeId}; continuing.`);
-      return false;
-    }
-
-    await client.post(
-      `https://apis.roblox.com/experience-questionnaire/v1/responses/${universeId}/submissions`,
-      {
-        questionnaireId,
-        response: { answers }
-      }
-    );
-
-    console.log(
-      `[SUCCESS] Experience questionnaire submitted for universe ${universeId} (${answers.length} answer(s); first option selected per question).`
-    );
-    return true;
-  } catch (err) {
-    console.log(`[WARN] Experience questionnaire submission failed for universe ${universeId}: ${err.message}`);
-    return false;
-  }
-}
-
-function configurePlace(client, placeId, config) {
+async function configurePlace(client, placeId, config) {
   return client.patch(`https://develop.roblox.com/v2/places/${placeId}`, {
     name: config.name,
     maxPlayerCount: config.maxPlayers,
@@ -1467,14 +1375,11 @@ async function configureUniverse(client, universeId, experience, config) {
     return;
   }
 
-  await submitExperienceQuestionnaire(client, universeId, experience);
-
   try {
     await client.patch(`https://develop.roblox.com/v2/universes/${universeId}/configuration`, {
       isFriendsOnly: false,
       privacyType: 'Public'
     });
-    console.log(`[SUCCESS] Universe ${universeId} privacy set to Public.`);
   } catch (err) {
     if (isRobloxUnauthorized(err)) {
       console.log(`[INFO] Creator account is not authorized to set universe ${universeId} public; skipping privacy update.`);
@@ -2791,7 +2696,9 @@ async function updateDiscordVoiceChannelsOnUploadFailure(config) {
 }
 
 async function updateDiscordVoiceChannelsAfterSuccessfulUpload(config) {
-  const monitorUniverseId = getActiveMonitorUniverseId(config);
+  const monitorUniverseId =
+    config.accountPool?.primary?.experienceId ||
+    config.experienceId;
   let livePlayers = 0;
   if (monitorUniverseId) {
     try {
@@ -2804,247 +2711,6 @@ async function updateDiscordVoiceChannelsAfterSuccessfulUpload(config) {
   }
   await updateDiscordVoiceChannelPlayerCount(config, livePlayers);
   await updateDiscordStatusChannel(config, 'up');
-}
-
-function getConfiguredExperienceBackups(config) {
-  return Array.isArray(config?.experienceBackups) ? config.experienceBackups : [];
-}
-
-function getActiveExperienceBackup(config) {
-  const backups = getConfiguredExperienceBackups(config);
-  const rawIndex = Number(config?.backupState?.activeIndex);
-  if (!backups.length || !Number.isInteger(rawIndex) || rawIndex < 0 || rawIndex >= backups.length) {
-    return null;
-  }
-  return backups[rawIndex];
-}
-
-function getActiveMonitorUniverseId(config) {
-  const activeBackup = getActiveExperienceBackup(config);
-  return String(
-    activeBackup?.universeId ||
-    config.accountPool?.primary?.experienceId ||
-    config.experienceId ||
-    ''
-  ).trim();
-}
-
-function normalizeBackupPlaceIds(backup) {
-  if (!backup || typeof backup !== 'object') return {};
-  backup.placeIds = backup.placeIds && typeof backup.placeIds === 'object' ? backup.placeIds : {};
-  for (const key of PLACE_KEYS) {
-    if (backup.placeIds[key] !== undefined && backup.placeIds[key] !== null && String(backup.placeIds[key]).trim() !== '') {
-      backup.placeIds[key] = String(backup.placeIds[key]).trim();
-    }
-  }
-  return backup.placeIds;
-}
-
-function extractCreatedPlaceId(value) {
-  const candidates = [
-    value?.placeId,
-    value?.id,
-    value?.place?.placeId,
-    value?.place?.id,
-    value?.data?.placeId,
-    value?.data?.id,
-    value?.data?.place?.placeId,
-    value?.data?.place?.id
-  ];
-  for (const candidate of candidates) {
-    if (candidate !== undefined && candidate !== null && String(candidate).trim() !== '') {
-      return normalizePositiveId(candidate, 'created place id');
-    }
-  }
-  return null;
-}
-
-async function resolveOrCreateBackupPlaceIds(client, config, backup) {
-  const universeId = requireValue(backup?.universeId, `backup universeId (${backup?.name || 'unnamed'})`);
-  const placeIds = normalizeBackupPlaceIds(backup);
-  const experience = config.experience || {};
-
-  if (!placeIds.Main) {
-    const rootPlaceId = await resolveMainPlaceIdForStudioShortcut(client, config, universeId);
-    if (rootPlaceId) {
-      placeIds.Main = String(rootPlaceId);
-      console.log(`[INFO] ${backup.name || 'Backup'}: found existing Main/root place ${placeIds.Main}.`);
-    } else {
-      throw new Error(`Backup "${backup.name || universeId}" is missing placeIds.Main and its Universe root place could not be resolved.`);
-    }
-  }
-
-  if (!placeIds.Battle || !placeIds.Trade) {
-    const templatePlaceId = requireValue(experience.templatePlaceId, 'experience.templatePlaceId');
-    for (const key of ['Battle', 'Trade']) {
-      if (placeIds[key]) continue;
-      console.log(`[INFO] ${backup.name || 'Backup'}: creating missing ${key} place from template ${templatePlaceId}...`);
-      const created = await createPlace(client, universeId, templatePlaceId);
-      const createdId = extractCreatedPlaceId(created);
-      if (!createdId) {
-        throw new Error(
-          `Roblox did not return a place ID when creating ${key} for backup "${backup.name || universeId}". ` +
-          'The backup upload was stopped so it will not be marked active.'
-        );
-      }
-      placeIds[key] = String(createdId);
-      saveBackupPlaceIdsToConfigFile(config._configPath || '', config._backupIndex ?? -1, placeIds);
-      console.log(`[SUCCESS] ${backup.name || 'Backup'}: created ${key} place ${placeIds[key]}.`);
-    }
-  }
-
-  for (const key of PLACE_KEYS) {
-    requireValue(placeIds[key], `backup ${backup.name || universeId} ${key} place id`);
-  }
-  return placeIds;
-}
-
-function saveBackupStateToConfigFile(configPath, backupIndex, backup) {
-  if (!configPath) return;
-  const resolvedPath = path.resolve(configPath);
-  const data = loadRawConfig(resolvedPath);
-  data.backupState = data.backupState || {};
-  data.backupState.activeIndex = backupIndex;
-  data.backupState.activeName = String(backup?.name || `Backup ${backupIndex + 1}`);
-  data.backupState.activeUniverseId = String(backup?.universeId || '');
-  if (backup?.placeIds) {
-    data.experienceBackups = Array.isArray(data.experienceBackups) ? data.experienceBackups : [];
-    if (data.experienceBackups[backupIndex]) {
-      data.experienceBackups[backupIndex].placeIds = backup.placeIds;
-    }
-  }
-  normalizeAccountPoolKeyOrder(data);
-  normalizeMonitorKeyOrder(data);
-  fs.writeFileSync(resolvedPath, `${stringifyConfigWithInlineAssetArrays(data)}\n`);
-}
-
-function saveBackupPlaceIdsToConfigFile(configPath, backupIndex, placeIds) {
-  if (!configPath) return;
-  const resolvedPath = path.resolve(configPath);
-  const data = loadRawConfig(resolvedPath);
-  if (!Array.isArray(data.experienceBackups) || !data.experienceBackups[backupIndex]) {
-    return;
-  }
-  data.experienceBackups[backupIndex].placeIds = { ...placeIds };
-  normalizeAccountPoolKeyOrder(data);
-  normalizeMonitorKeyOrder(data);
-  fs.writeFileSync(resolvedPath, `${stringifyConfigWithInlineAssetArrays(data)}\n`);
-}
-
-function buildDiscordMention(config) {
-  const mention = String(config.monitor?.discordAnnouncementMention || '@everyone').trim();
-  return mention || '@everyone';
-}
-
-function buildDiscordGameDownAnnouncement(config) {
-  return `${buildDiscordMention(config)}\n\n**Game is currently down, however your data is safe. Please wait for a Founder to reupload.**`;
-}
-
-function buildDiscordReuploadedAnnouncement(config, gameLink) {
-  const mention = buildDiscordMention(config);
-  return `${mention}\n**The game is back with your data completely restored!**\nYou can find the game in <#1226004017633820772> \n If you find any bugs, make sure to report them in <#1231058747644973096> so we can fix them!\n\nThis is a full upload with Animations, Dev Products, and Music. \nThe latest updates can be found in <#1226004017633820776> with all the details you need there!\nYou can find all the most recent codes in <#1226004018011181083> and Booster Codes in: <#1430940814376435773> \n\n## 🎯 Current Goals:\n- **150 Likes** = New Code\n- **1500 Favorites** = New Code\n- **200 Active Players** = New Code\n\n## 📣 How You Can Help:\n✅ **Like the game**  \n⭐ **Favorite the game**  \n📨 **Invite your friends to join the adventure!**\n<:thumbsup:1380096461756174446>  **Boost the server for booster codes, booster only game link**\n\n# Game Link:\n# 👉 ${gameLink}\n# Group Link:\n# 👉 https://www.roblox.com/communities/12396638/John-admin#!/about\n💰 | How do I get gamepasses?\nSimply join our community group above to unlock them instantly.\n🔥 | DATA: \nYour data is kept safe by us! We keep it stored safely so you can continue playing with it next reupload.\n❤️ | EEVEE: \nFor a Monster, join the official Community Group, and then head over to the far right house in Silvent City and talk to the man inside.\n💳 | CODES:\nFor all codes in Pokemon Brick Bronze, join our Community Group above.`;
-}
-
-async function sendDiscordAnnouncement(config, content) {
-  const botToken = String(config.monitor?.discordBotToken || '').trim();
-  const channelId = String(config.monitor?.discordAnnouncementChannelId || '').trim();
-  if (!botToken || !channelId) {
-    return false;
-  }
-  try {
-    const response = await discordBotApiRequestWithRateLimitRetry(
-      botToken,
-      `/channels/${encodeURIComponent(channelId)}/messages`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content, allowed_mentions: { parse: ['everyone', 'roles', 'users'] } })
-      }
-    );
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Discord announcement post failed: ${response.status} ${response.statusText} ${body}`);
-    }
-    console.log(`[SUCCESS] Posted Discord announcement to channel ${channelId}.`);
-    return true;
-  } catch (err) {
-    console.log(`[WARN] Failed to post Discord announcement: ${err.message}`);
-    return false;
-  }
-}
-
-async function notifyDiscordGameDown(config) {
-  return sendDiscordAnnouncement(config, buildDiscordGameDownAnnouncement(config));
-}
-
-async function notifyDiscordGameReuploaded(config, mainPlaceId) {
-  const gameLink = buildRobloxGameShareUrl(mainPlaceId, config.experience?.name);
-  return sendDiscordAnnouncement(config, buildDiscordReuploadedAnnouncement(config, gameLink));
-}
-
-async function configureAndUploadBackupExperience(client, config, backup, { configPath = '', backupIndex = 0 } = {}) {
-  const universeId = requireValue(backup?.universeId, `backup universeId (${backup?.name || 'unnamed'})`);
-  const placeIds = await resolveOrCreateBackupPlaceIds(client, config, backup);
-  const experience = config.experience;
-
-  const universePermissions = await getUniversePermissions(client, universeId);
-  if (!universePermissions?.canManage) {
-    throw new Error(
-      `Configured creator account cannot manage backup universe ${universeId} (${backup?.name || 'unnamed'}). ` +
-      'Use an owner/member account with Manage experience permission.'
-    );
-  }
-
-  await configureUniverse(client, universeId, experience, config);
-  for (const key of PLACE_KEYS) {
-    const socialSlotType = resolveSocialSlotType(experience, key);
-    await configurePlace(client, placeIds[key], {
-      name: experience.places?.[key]?.name || key,
-      maxPlayers: experience.maxPlayers || 30,
-      allowCopying: experience.allowCopying === true,
-      socialSlotType
-    });
-    console.log(`[SUCCESS] Configured backup ${key} place ${placeIds[key]}.`);
-  }
-  await configureExperiencePlaceAccessControl(config, universeId);
-  const uploadResult = await uploadExperienceRbxlPlaces(universeId, placeIds, config, experience);
-  const missingUploadKeys = PLACE_KEYS.filter((key) => !uploadResult.uploadedKeys.has(key));
-  if (missingUploadKeys.length) {
-    throw new Error(
-      `Backup "${backup?.name || universeId}" was not activated because RBXL publishing did not complete for: ${missingUploadKeys.join(', ')}.`
-    );
-  }
-  await configureMedia(
-    client,
-    universeId,
-    placeIds.Main,
-    experience,
-    resolveCookie(requireValue(config.creatorAccount, 'creatorAccount'), 'creatorAccount'),
-    config
-  );
-  backup.placeIds = placeIds;
-  config.backupState = {
-    ...(config.backupState || {}),
-    activeIndex: backupIndex,
-    activeName: String(backup?.name || `Backup ${backupIndex + 1}`),
-    activeUniverseId: String(universeId)
-  };
-  saveBackupStateToConfigFile(configPath, backupIndex, backup);
-  if (configPath) {
-    updateMonitorHealthUrlInConfigFile(configPath, placeIds.Main);
-    await postGameLinkToDiscordBot(config, placeIds.Main, { configPath });
-  }
-  return { universeId, placeIds };
-}
-
-function selectNextExperienceBackup(config) {
-  const backups = getConfiguredExperienceBackups(config);
-  if (!backups.length) return null;
-  const currentIndex = Number(config?.backupState?.activeIndex);
-  const start = Number.isInteger(currentIndex) && currentIndex >= 0 && currentIndex < backups.length
-    ? (currentIndex + 1) % backups.length
-    : 0;
-  return { index: start, backup: backups[start] };
 }
 
 async function postGameLinkToDiscordBot(config, mainPlaceId, { configPath } = {}) {
@@ -3254,11 +2920,8 @@ async function resolveExperiencePlaceIds(client, config) {
 async function uploadExperienceRbxlPlaces(universeId, placeIds, config, experience) {
   let rbxlSkipKeyLogged = false;
   const uploadedPlaceIds = new Set();
-  const uploadedKeys = new Set();
   const groupMode = isGroupOpenCloudModeEnabled(config);
   const keySource = describeOpenCloudKeySource(config, 'Main');
-  const effectiveGroupId = resolveExperienceGroupId(config) || envSecret('ROBLOX_GROUP_ID');
-  console.log(`[INFO] Effective Roblox publishing mode: groupMode=${groupMode}${effectiveGroupId ? `, groupId=${effectiveGroupId}` : ''}.`);
   if (keySource !== 'none') {
     console.log(
       `[INFO] Open Cloud RBXL publish (groupMode=${groupMode}) will use ${keySource}.`
@@ -3291,7 +2954,6 @@ async function uploadExperienceRbxlPlaces(universeId, placeIds, config, experien
     try {
       await uploadPlaceFile(universeId, placeIds[key], path.resolve(experience.rbxlPath), apiKey, config);
       uploadedPlaceIds.add(targetPlaceId);
-      uploadedKeys.add(key);
       console.log(`[SUCCESS] Uploaded RBXL to ${key} place ${placeIds[key]}`);
     } catch (err) {
       if (isMissingOpenCloudApiKey(err)) {
@@ -3315,7 +2977,6 @@ async function uploadExperienceRbxlPlaces(universeId, placeIds, config, experien
       throw err;
     }
   }
-  return { uploadedKeys, uploadedPlaceIds };
 }
 
 function isOpenCloudInsufficientScopesError(error) {
@@ -3426,36 +3087,6 @@ export async function runPushPlaceIdsOnly(config, { configPath = '' } = {}) {
  * Normal upload: configure + RBXL + media + placeIds + health URL update.
  * Skips friend automation, universe edit grants, Open Cloud asset grants, and unfriend helper.
  */
-export async function runBackupUploadPipeline(config, { configPath = '', backupIndex, backup } = {}) {
-  config = withPrimaryAccountApplied(config);
-  const creatorAccount = requireValue(config.creatorAccount, 'creatorAccount');
-  const creatorClient = new RobloxClient(resolveCookie(creatorAccount, 'creatorAccount'), creatorAccount.name || 'creator account');
-  await getAuthenticatedUser(creatorClient);
-
-  const selected = backup || config.experienceBackups?.[backupIndex];
-  if (!selected) {
-    throw new Error('No experience backup was selected. Configure experienceBackups in config.json.');
-  }
-  const selectedIndex = Number.isInteger(Number(backupIndex)) ? Number(backupIndex) : 0;
-  config._configPath = configPath;
-  config._backupIndex = selectedIndex;
-  console.log(`[INFO] Backup upload selected: ${selected.name || `Backup ${selectedIndex + 1}`} (Universe ${selected.universeId}).`);
-  await updateDiscordVoiceChannelsAtUploadStart(config);
-  try {
-    const result = await configureAndUploadBackupExperience(creatorClient, config, selected, {
-      configPath,
-      backupIndex: selectedIndex
-    });
-    await notifyDiscordGameReuploaded(config, result.placeIds.Main);
-    await updateDiscordVoiceChannelsAfterSuccessfulUpload(config);
-    console.log(`[SUCCESS] Backup upload finished: ${selected.name || `Backup ${selectedIndex + 1}`}.`);
-    return result;
-  } catch (err) {
-    await updateDiscordVoiceChannelsOnUploadFailure(config);
-    throw err;
-  }
-}
-
 export async function runNormalUploadPipeline(config, { configPath } = {}) {
   config = withPrimaryAccountApplied(config);
   const creatorAccount = requireValue(config.creatorAccount, 'creatorAccount');
@@ -3467,9 +3098,6 @@ export async function runNormalUploadPipeline(config, { configPath } = {}) {
   let placeIds;
   try {
     ({ placeIds } = await configureExistingExperience(creatorClient, config, { configPath }));
-    console.log('[INFO] Normal upload: granting Audio/Animation Use permissions now that the upload succeeded...');
-    await grantAllPermissions(config);
-    console.log('[SUCCESS] Normal upload: Audio/Animation permissions granted.');
   } catch (err) {
     await updateDiscordVoiceChannelsOnUploadFailure(config);
     throw err;
@@ -3479,7 +3107,6 @@ export async function runNormalUploadPipeline(config, { configPath } = {}) {
     const mainPlaceId = requireValue(placeIds?.Main, 'Main place id after normal upload');
     updateMonitorHealthUrlInConfigFile(configPath, mainPlaceId);
     await postGameLinkToDiscordBot(config, mainPlaceId, { configPath });
-    await notifyDiscordGameReuploaded(config, mainPlaceId);
     await updateDiscordVoiceChannelsAfterSuccessfulUpload(config);
   }
 
@@ -3583,7 +3210,9 @@ export async function runFullUploadPipeline(config, { configPath } = {}) {
     throw new Error('connectFriendAccounts returned no creatorClient; check friendAutomation / creatorAccount cookie.');
   }
 
-  console.log('[INFO] Full upload: friend/edit-access stage complete; asset permissions will be granted after the RBXL upload.');
+  console.log('[INFO] Running permissions granter after edit-permission verification...');
+  await grantAllPermissions(config);
+  console.log('[INFO] Open Cloud asset grants done; continuing (unfriend tabs → configure/upload)...');
   try {
     await openUnfriendTabs(config, friendTargetUserId);
     console.log('[INFO] Unfriend tab step finished.');
@@ -3596,9 +3225,6 @@ export async function runFullUploadPipeline(config, { configPath } = {}) {
   let placeIds;
   try {
     ({ placeIds } = await configureExistingExperience(creatorClient, config, { configPath }));
-    console.log('[INFO] Full upload: granting Audio/Animation Use permissions now that the upload succeeded...');
-    await grantAllPermissions(config);
-    console.log('[SUCCESS] Full upload: Audio/Animation permissions granted.');
   } catch (err) {
     await updateDiscordVoiceChannelsOnUploadFailure(config);
     throw err;
@@ -3608,7 +3234,6 @@ export async function runFullUploadPipeline(config, { configPath } = {}) {
     const mainPlaceId = requireValue(placeIds?.Main, 'Main place id after upload');
     updateMonitorHealthUrlInConfigFile(configPath, mainPlaceId);
     await postGameLinkToDiscordBot(config, mainPlaceId, { configPath });
-    await notifyDiscordGameReuploaded(config, mainPlaceId);
     await updateDiscordVoiceChannelsAfterSuccessfulUpload(config);
   }
 
@@ -3748,7 +3373,6 @@ export async function runMonitorService(configPath) {
   console.log(`[INFO] Monitor service started (config: ${resolvedConfigPath}). Ctrl+C to stop.`);
 
   let uploadSuspendedModerationNoBackups = false;
-  let discordOutageAnnounced = false;
 
   while (true) {
     let config;
@@ -3792,12 +3416,6 @@ export async function runMonitorService(configPath) {
     });
 
     if (decision.shouldReupload) {
-      if (!discordOutageAnnounced) {
-        discordOutageAnnounced = true;
-        spawnDiscordTask('game-down announcement', async () => {
-          await notifyDiscordGameDown(config);
-        });
-      }
       if (uploadSuspendedModerationNoBackups) {
         console.log(
           '[WARN] Skipping repair upload: last attempt hit Roblox moderation (403) with no remaining backup accounts. ' +
@@ -3824,24 +3442,11 @@ export async function runMonitorService(configPath) {
           console.log(`[INFO] Rotated primary uploader account to backup: ${rotatedTo.name || rotatedTo.userId}`);
         }
 
-        console.log('[INFO] Health checks failed after retries; starting repair upload...');
-        const experienceBackup = selectNextExperienceBackup(uploadConfig);
+        console.log('[INFO] Health checks failed after retries; running normal upload pipeline...');
         try {
-          if (experienceBackup) {
-            console.log(`[INFO] Rotating game Universe to configured backup: ${experienceBackup.backup.name || `Backup ${experienceBackup.index + 1}`}.`);
-            const result = await runBackupUploadPipeline(uploadConfig, {
-              configPath: resolvedConfigPath,
-              backupIndex: experienceBackup.index,
-              backup: experienceBackup.backup
-            });
-            discordOutageAnnounced = false;
-            console.log(`[SUCCESS] Backup Universe is now active: ${experienceBackup.backup.name || `Backup ${experienceBackup.index + 1}`}.`);
-          } else {
-            await runNormalUploadPipeline(uploadConfig, { configPath: resolvedConfigPath });
-            discordOutageAnnounced = false;
-          }
+          await runNormalUploadPipeline(uploadConfig, { configPath: resolvedConfigPath });
         } catch (err) {
-          console.error('[FAIL] Repair upload pipeline error:', err);
+          console.error('[FAIL] Normal upload pipeline error:', err);
           if (isRobloxAccountModerationError(err) && !(uploadConfig.accountPool?.backups?.length)) {
             uploadSuspendedModerationNoBackups = true;
             console.log(
@@ -4720,7 +4325,9 @@ async function evaluateReuploadDecision(config) {
 export async function runReuploader(config, options = {}) {
   config = withPrimaryAccountApplied(config);
   const skipHealthCheck = Boolean(options.skipHealthCheck);
-  const monitorUniverseId = getActiveMonitorUniverseId(config);
+  const monitorUniverseId =
+    config.accountPool?.primary?.experienceId ||
+    config.experienceId;
   if (!skipHealthCheck) {
     const decision = await evaluateReuploadDecision(config);
     let livePlayers = 0;

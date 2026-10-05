@@ -96,16 +96,10 @@
             <h3>Place IDs export</h3>
             <div class="actions">
               <button type="button" id="reload-placeids">Reload</button>
-              <button type="button" id="save-placeids" class="primary">Save Place IDs</button>
               <button type="button" id="push-placeids">Push to GitHub</button>
             </div>
           </div>
-          <p class="hint">You can edit the Railway copy directly below. Saving writes to <code>/data/placeids.json</code> and does <strong>not</strong> require GitHub. The GitHub button remains available for publishing it externally.</p>
-          <div class="config-fields">
-            <label class="field"><span>Main Place ID</span><input id="placeid-main" inputmode="numeric" autocomplete="off" /></label>
-            <label class="field"><span>Battle Place ID</span><input id="placeid-battle" inputmode="numeric" autocomplete="off" /></label>
-            <label class="field"><span>Trade Place ID</span><input id="placeid-trade" inputmode="numeric" autocomplete="off" /></label>
-          </div>
+          <p class="hint">On Railway, IDs save to <code>/data/placeids.json</code>. Set <code>PLACEIDS_GITHUB_TOKEN</code> in Railway, then fill <strong>GitHub owner / repo / branch / file path</strong> under Configuration → <strong>Place IDs export</strong> and Save.</p>
           <p id="placeids-meta" class="meta"></p>
           <pre id="placeids-preview" class="console placeids-preview"></pre>
         </div>

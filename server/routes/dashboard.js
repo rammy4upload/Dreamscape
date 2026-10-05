@@ -12,7 +12,7 @@ import {
 import { loadCodesData, saveCodesData, loadCodesLuaSource, saveCodesLuaSource, getCodesMeta, getCodesForDashboard, updateCodesFromDashboard, addCodeEntry, removeCodeEntry } from '../services/codesStore.js';
 import { loadServiceConfig, serverConfig } from '../config.js';
 import { getCatalog } from '../services/productResolver.js';
-import { readPlaceIdsFile, pushExistingPlaceIds, writePlaceIdsFile } from '../../src/shared/placeIdsExport.js';
+import { readPlaceIdsFile, pushExistingPlaceIds } from '../../src/shared/placeIdsExport.js';
 import {
   getIntegrationManifest,
   renderLuauTemplate,
@@ -236,27 +236,6 @@ router.get('/placeids', (_req, res) => {
     data: file.data,
     error: file.error || null,
   });
-});
-
-router.put('/placeids', (req, res) => {
-  try {
-    const { Main, Battle, Trade } = req.body || {};
-    const ids = {
-      Main: String(Main || '').trim(),
-      Battle: String(Battle || '').trim(),
-      Trade: String(Trade || '').trim(),
-    };
-    for (const [name, value] of Object.entries(ids)) {
-      if (!/^\d+$/.test(value)) {
-        return res.status(400).json({ error: `${name} place ID must be numeric.` });
-      }
-    }
-
-    const config = loadServiceConfig() || {};
-    return res.json({ ok: true, ...writePlaceIdsFile(ids, config, { configPath: serverConfig.configPath }) });
-  } catch (error) {
-    return res.status(400).json({ error: error.message || String(error) });
-  }
 });
 
 router.post('/placeids/push', async (_req, res) => {
