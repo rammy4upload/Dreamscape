@@ -3467,6 +3467,9 @@ export async function runNormalUploadPipeline(config, { configPath } = {}) {
   let placeIds;
   try {
     ({ placeIds } = await configureExistingExperience(creatorClient, config, { configPath }));
+    console.log('[INFO] Normal upload: granting Audio/Animation Use permissions now that the upload succeeded...');
+    await grantAllPermissions(config);
+    console.log('[SUCCESS] Normal upload: Audio/Animation permissions granted.');
   } catch (err) {
     await updateDiscordVoiceChannelsOnUploadFailure(config);
     throw err;
@@ -3580,9 +3583,7 @@ export async function runFullUploadPipeline(config, { configPath } = {}) {
     throw new Error('connectFriendAccounts returned no creatorClient; check friendAutomation / creatorAccount cookie.');
   }
 
-  console.log('[INFO] Running permissions granter after edit-permission verification...');
-  await grantAllPermissions(config);
-  console.log('[INFO] Open Cloud asset grants done; continuing (unfriend tabs → configure/upload)...');
+  console.log('[INFO] Full upload: friend/edit-access stage complete; asset permissions will be granted after the RBXL upload.');
   try {
     await openUnfriendTabs(config, friendTargetUserId);
     console.log('[INFO] Unfriend tab step finished.');
@@ -3595,6 +3596,9 @@ export async function runFullUploadPipeline(config, { configPath } = {}) {
   let placeIds;
   try {
     ({ placeIds } = await configureExistingExperience(creatorClient, config, { configPath }));
+    console.log('[INFO] Full upload: granting Audio/Animation Use permissions now that the upload succeeded...');
+    await grantAllPermissions(config);
+    console.log('[SUCCESS] Full upload: Audio/Animation permissions granted.');
   } catch (err) {
     await updateDiscordVoiceChannelsOnUploadFailure(config);
     throw err;
