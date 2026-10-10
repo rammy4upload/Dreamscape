@@ -1,5 +1,5 @@
 --[[
-	Pokemon Brick Bronze AutoReuploader — ProductBridge (generic template)
+	Monster Brick Bronze AutoReuploader — ProductBridge (generic template)
 	Docs: docs/product-bridge.md
 ]]
 

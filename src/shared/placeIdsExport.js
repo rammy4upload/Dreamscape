@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { atomicWriteFile } from './atomicStore.js';
 import path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -133,7 +134,7 @@ async function pushPlaceIdsViaGitHub(json, gitConfig) {
   const headers = {
     Authorization: `Bearer ${token}`,
     Accept: 'application/vnd.github+json',
-    'User-Agent': 'PokemonBrickBronze-AutoReuploader',
+    'User-Agent': 'MonsterBrickBronze-AutoReuploader',
   };
 
   const metaUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${githubPath}?ref=${encodeURIComponent(branch)}`;
@@ -175,51 +176,62 @@ export async function exportPlaceIds(placeIds, config, { configPath = '' } = {})
   const outputPathAbs = resolvePlaceIdsOutputPath(config, configPath);
 
   fs.mkdirSync(path.dirname(outputPathAbs), { recursive: true });
-  fs.writeFileSync(outputPathAbs, json);
+  atomicWriteFile(outputPathAbs, json, { backup: true });
   console.log(`[SUCCESS] Wrote place IDs to ${outputPathAbs}`);
+  console.log(`[INFO] Current Roblox target places: Main=${placeIds.Main}, Battle=${placeIds.Battle}, Trade=${placeIds.Trade}`);
 
   const gitConfig = config.placeIds?.git;
   if (!gitConfig?.enabled) {
-    return { path: outputPathAbs, pushed: false };
+    const message =
+      'placeIds.git.enabled is false; the new IDs were saved locally only and were NOT published to GitHub. ' +
+      'Any game script that reads PlaceIdsRepo remotely will keep using the old Main/Battle/Trade IDs. ' +
+      'Enable placeIds.git.enabled and configure PLACEIDS_GITHUB_TOKEN (or GITHUB_TOKEN), githubOwner, and githubRepo.';
+    if (gitConfig?.required === true) throw new Error(message);
+    console.log(`[WARN] ${message}`);
+    return { path: outputPathAbs, pushed: false, method: 'disabled' };
   }
 
+  const required = gitConfig.required === true;
   const githubConfigured = Boolean(gitConfig.githubOwner && gitConfig.githubRepo);
   const githubToken = process.env.PLACEIDS_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
 
+  const pushFailure = (method, error) => {
+    const message = `${method} place-ID sync failed: ${error?.message || String(error)}. Local file is saved at ${outputPathAbs}.`;
+    if (required) {
+      throw new Error(message, { cause: error });
+    }
+    console.log(`[WARN] ${message} Continuing because placeIds.git.required=false.`);
+    return { path: outputPathAbs, pushed: false, method, pushError: error?.message || String(error) };
+  };
+
   if (githubConfigured && githubToken) {
-    await pushPlaceIdsViaGitHub(json, gitConfig);
-    return { path: outputPathAbs, pushed: true, method: 'github' };
+    try {
+      await pushPlaceIdsViaGitHub(json, gitConfig);
+      console.log(`[SUCCESS] Remote PlaceIdsRepo now targets Main=${placeIds.Main}, Battle=${placeIds.Battle}, Trade=${placeIds.Trade}`);
+      return { path: outputPathAbs, pushed: true, method: 'github' };
+    } catch (error) {
+      return pushFailure(`GitHub ${gitConfig.githubOwner}/${gitConfig.githubRepo}`, error);
+    }
   }
 
   const repoPathConfigured = gitConfig.repositoryPath ? String(gitConfig.repositoryPath).trim() : '';
   const repositoryPathAbs = resolvePathAgainstConfigFileDir(repoPathConfigured, configPath);
 
   if (repositoryPathAbs && fs.existsSync(path.join(repositoryPathAbs, '.git'))) {
-    await pushPlaceIdsViaLocalGit(outputPathAbs, repositoryPathAbs, gitConfig);
-    return { path: outputPathAbs, pushed: true, method: 'local-git' };
+    try {
+      await pushPlaceIdsViaLocalGit(outputPathAbs, repositoryPathAbs, gitConfig);
+      return { path: outputPathAbs, pushed: true, method: 'local-git' };
+    } catch (error) {
+      return pushFailure('Local Git', error);
+    }
   }
 
-  if (isRailway()) {
-    const missing = [];
-    if (!githubToken) {
-      missing.push('PLACEIDS_GITHUB_TOKEN (or GITHUB_TOKEN) in Railway variables');
-    }
-    if (!gitConfig.githubOwner || !gitConfig.githubRepo) {
-      missing.push('placeIds.git.githubOwner and placeIds.git.githubRepo in config (Configuration tab → Save)');
-    }
-    console.log(
-      '[WARN] placeIds.git.enabled but GitHub export is not configured. IDs saved on disk only.\n' +
-        (missing.length
-          ? `         Missing: ${missing.join('; ')}.\n`
-          : '') +
-        '         Or fetch from Railway: GET /api/placeids with Authorization: Bearer <API_KEY>.'
-    );
-  } else {
-    console.log(
-      '[WARN] placeIds.git.enabled but no GitHub token/repo and no local git repository found. IDs saved on disk only.'
-    );
-  }
-
+  const missing = [];
+  if (!githubToken) missing.push('PLACEIDS_GITHUB_TOKEN (or GITHUB_TOKEN) in Railway variables');
+  if (!gitConfig.githubOwner || !gitConfig.githubRepo) missing.push('placeIds.git.githubOwner and placeIds.git.githubRepo in config');
+  const message = `placeIds.git.enabled but GitHub export is not configured. IDs saved on disk only. Missing: ${missing.join('; ') || 'a GitHub token and repository configuration'}.`;
+  if (required) throw new Error(message);
+  console.log(`[WARN] ${message} Continuing because placeIds.git.required=false.`);
   return { path: outputPathAbs, pushed: false };
 }
 

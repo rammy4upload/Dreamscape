@@ -262,6 +262,24 @@ document.getElementById('clear-console').onclick = () => {
   liveConsole.scrollTop = 0;
 };
 
+document.getElementById('clear-operation-lock')?.addEventListener('click', async () => {
+  if (!dashboardAuthed) return;
+  if (!window.confirm('Stop the task holding the operation lock and clear the lock? Only do this if you want to abort the current upload.')) return;
+  const button = document.getElementById('clear-operation-lock');
+  button.disabled = true;
+  try {
+    const response = await api('/api/autoreuploader/lock/clear', { method: 'POST' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || response.statusText);
+    appendConsole(`[dashboard] ${data.message || (data.cleared ? 'Operation lock cleared.' : 'No operation lock found.')}\n`);
+    await refreshTasks();
+  } catch (error) {
+    appendConsole(`[error] Could not clear operation lock: ${error.message || String(error)}\n`);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 document.getElementById('sign-out')?.addEventListener('click', () => {
   forceDashboardLogout();
 });
@@ -490,6 +508,12 @@ function createConfigInput(field) {
   }
   input.id = `cfg-${field.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
   input.dataset.key = field.key;
+  input.dataset.sensitive = field.sensitive ? '1' : '0';
+  input.dataset.hasValue = field.hasValue ? '1' : '0';
+  if (field.sensitive && field.hasValue) {
+    input.placeholder = 'Leave blank to keep the current secret';
+    input.autocomplete = 'new-password';
+  }
   return input;
 }
 
@@ -563,7 +587,13 @@ function appendConfigFieldRow(parent, field) {
 async function saveConfigFields({ quiet = false } = {}) {
   const fields = {};
   document.querySelectorAll('#config-fields [data-key]').forEach((el) => {
-    fields[el.dataset.key] = el.value;
+    const isSensitive = el.dataset.sensitive === '1';
+    const hasExistingValue = el.dataset.hasValue === '1';
+    const value = el.value;
+    if (isSensitive && hasExistingValue && value === '') {
+      return;
+    }
+    fields[el.dataset.key] = value;
   });
   if (!Object.keys(fields).length) {
     return null;

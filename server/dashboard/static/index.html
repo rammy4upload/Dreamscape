@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pokemon Brick Bronze AutoReuploader</title>
+  <title>Monster Brick Bronze AutoReuploader</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css" />
   <link rel="stylesheet" href="/style.css" />
@@ -11,7 +11,7 @@
 <body>
   <div id="login-gate" class="login-gate">
     <form id="login-form" class="login-card">
-      <h1>Pokemon Brick Bronze AutoReuploader</h1>
+      <h1>Monster Brick Bronze AutoReuploader</h1>
       <p class="hint">Enter the dashboard password to continue.</p>
       <label for="login-password">Password</label>
       <input id="login-password" type="password" autocomplete="current-password" required />
@@ -23,7 +23,7 @@
   <div id="dashboard-app" class="locked">
   <header>
     <div>
-      <h1>Pokemon Brick Bronze AutoReuploader</h1>
+      <h1>Monster Brick Bronze AutoReuploader</h1>
       <p class="subtitle">Commands, configuration, assets, codes, products, and live task output.</p>
     </div>
     <div class="header-actions">
@@ -54,6 +54,10 @@
           </form>
           <h3>All utilities</h3>
           <div id="command-buttons" class="command-grid"></div>
+          <div class="actions" style="margin-top: 16px">
+            <button type="button" id="clear-operation-lock" class="danger">Stop locked task / clear lock</button>
+          </div>
+          <p class="hint">Emergency use only. This stops a dashboard upload task if found, then clears the operation lock so a new command can run.</p>
         </div>
         <div class="panel">
           <h2>Live console</h2>

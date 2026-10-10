@@ -42,6 +42,9 @@ export function requireCodesAuth(req, res, next) {
 
 export function requireDashboardAuth(req, res, next) {
   if (!serverConfig.dashboardPassword) {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(503).json({ error: 'DASHBOARD_PASSWORD is not configured on the server.' });
+    }
     return next();
   }
 

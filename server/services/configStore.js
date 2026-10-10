@@ -1,9 +1,51 @@
 import fs from 'fs';
 import path from 'path';
 import { loadServiceConfig, serverConfig } from '../config.js';
+import { atomicWriteJson, readJsonWithBackup } from '../../src/shared/atomicStore.js';
 
 const SENSITIVE_PATTERN = /cookie|apikey|api_key|token|password|secret|roblox/i;
 const ASSET_ARRAY_KEYS = new Set(['audioAssets', 'animationAssets']);
+const JSON_CONFIG_FIELDS = new Map([
+  ['experience.playableDevices', { type: 'array', defaultValue: ['Computer', 'Phone', 'Tablet', 'Console'] }],
+  ['experience.rbxlPaths', { type: 'object', defaultValue: {} }],
+  ['questionnaire.questionIds', { type: 'array', defaultValue: [] }],
+  ['questionnaire.answers', { type: 'array', defaultValue: [] }],
+  ['questionnaire.answersByQuestionId', { type: 'object', defaultValue: {} }],
+]);
+
+function isJsonConfigField(fieldPath) {
+  return JSON_CONFIG_FIELDS.has(fieldPath);
+}
+
+function defaultJsonConfigValue(fieldPath) {
+  const field = JSON_CONFIG_FIELDS.get(fieldPath);
+  return field ? structuredClone(field.defaultValue) : null;
+}
+
+function parseJsonConfigValue(raw, fieldPath) {
+  const field = JSON_CONFIG_FIELDS.get(fieldPath);
+  if (!field) return raw;
+  if (raw === null || raw === undefined || (typeof raw === 'string' && !raw.trim())) {
+    return defaultJsonConfigValue(fieldPath);
+  }
+
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      throw new Error(`${fieldPath} must be valid JSON: ${error.message}`);
+    }
+  }
+
+  if (field.type === 'array' && !Array.isArray(parsed)) {
+    throw new Error(`${fieldPath} must be a JSON array (for example: [\"Computer\", \"Phone\"]).`);
+  }
+  if (field.type === 'object' && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))) {
+    throw new Error(`${fieldPath} must be a JSON object (for example: {}).`);
+  }
+  return parsed;
+}
 
 export function isAssetIdArrayPath(fieldPath) {
   const leaf = fieldPath.split('.').pop();
@@ -61,14 +103,14 @@ export function ensureConfigFile() {
 
   const bundled = bundledConfigPath();
   if (fs.existsSync(bundled) && path.resolve(bundled) !== path.resolve(file)) {
-    fs.copyFileSync(bundled, file);
+    atomicWriteJson(file, JSON.parse(fs.readFileSync(bundled, 'utf8')), { backup: false });
     console.log(`[config] Created ${file} from bundled config.json`);
     return file;
   }
 
   const example = exampleConfigPath();
   if (fs.existsSync(example)) {
-    fs.copyFileSync(example, file);
+    atomicWriteJson(file, JSON.parse(fs.readFileSync(example, 'utf8')), { backup: false });
     console.log(`[config] Created ${file} from config.example.json`);
     return file;
   }
@@ -78,7 +120,7 @@ export function ensureConfigFile() {
     experience: {},
     monitor: {},
   };
-  fs.writeFileSync(file, `${JSON.stringify(skeleton, null, 2)}\n`);
+  atomicWriteJson(file, skeleton, { backup: false });
   console.log(`[config] Created empty ${file}`);
   return file;
 }
@@ -88,13 +130,13 @@ export function loadConfig() {
   if (!fs.existsSync(file)) {
     return null;
   }
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
+  return readJsonWithBackup(file);
 }
 
 export function saveConfig(config) {
   const file = getConfigPath();
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+  atomicWriteJson(file, config, { backup: true });
   return file;
 }
 
@@ -134,6 +176,9 @@ export function flattenConfig(obj, prefix = '', out = {}) {
 }
 
 function coerceValue(raw, fieldPath) {
+  if (isJsonConfigField(fieldPath)) {
+    return parseJsonConfigValue(raw, fieldPath);
+  }
   if (isAssetIdArrayPath(fieldPath)) {
     return parseAssetIdArray(raw, fieldPath);
   }
@@ -154,7 +199,77 @@ function coerceValue(raw, fieldPath) {
   return text;
 }
 
+function assertSafeFieldPath(fieldPath) {
+  if (!fieldPath || fieldPath.split('.').some((part) => ['__proto__', 'prototype', 'constructor'].includes(part))) {
+    throw new Error('Unsafe configuration field path');
+  }
+}
+
+function pathIsInside(child, parent) {
+  const relative = path.relative(path.resolve(parent), path.resolve(child));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function validateConfiguredPath(raw, fieldPath) {
+  const value = String(raw || '').trim();
+  if (!value) return;
+  if (value.includes('\0') || /(^|[\\/])\.\.([\\/]|$)/.test(value)) {
+    throw new Error(`Unsafe path in ${fieldPath}`);
+  }
+  if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) {
+    const resolved = path.resolve(value);
+    const allowedRoots = [process.cwd(), serverConfig.dataDir];
+    if (!allowedRoots.some((root) => pathIsInside(resolved, root))) {
+      throw new Error(`Path outside Railway application storage is not allowed in ${fieldPath}`);
+    }
+  }
+}
+
+function validateConfigSecurity(config) {
+  const pathFields = [
+    ['experience', 'rbxlPath'],
+    ['experience', 'iconPath'],
+    ['experience', 'thumbnailPath'],
+    ['placeIds', 'outputPath'],
+    ['placeIds', 'git', 'repositoryPath'],
+  ];
+  for (const parts of pathFields) {
+    let value = config;
+    for (const part of parts) value = value?.[part];
+    if (typeof value !== 'string' || !value.trim()) continue;
+    validateConfiguredPath(value, parts.join('.'));
+  }
+
+  const rbxlPaths = config?.experience?.rbxlPaths;
+  if (rbxlPaths && typeof rbxlPaths === 'object' && !Array.isArray(rbxlPaths)) {
+    for (const key of ['Main', 'Battle', 'Trade']) {
+      if (typeof rbxlPaths[key] === 'string' && rbxlPaths[key].trim()) {
+        validateConfiguredPath(rbxlPaths[key], `experience.rbxlPaths.${key}`);
+      }
+    }
+  }
+
+  const healthUrl = config?.monitor?.healthUrl;
+  if (healthUrl) {
+    try {
+      const url = new URL(healthUrl);
+      if (url.protocol !== 'https:' || !/^(www\.)?roblox\.com$/i.test(url.hostname) || !/^\/games\/\d+/i.test(url.pathname)) {
+        throw new Error('monitor.healthUrl must be a Roblox game HTTPS URL');
+      }
+    } catch (error) {
+      throw new Error(`Unsafe monitor.healthUrl: ${error.message}`);
+    }
+  }
+
+  const publicBaseUrl = config?.gameIntegration?.publicBaseUrl;
+  if (publicBaseUrl) {
+    const url = new URL(publicBaseUrl);
+    if (url.protocol !== 'https:') throw new Error('gameIntegration.publicBaseUrl must use HTTPS');
+  }
+}
+
 function setDeep(target, fieldPath, value) {
+  assertSafeFieldPath(fieldPath);
   const parts = fieldPath.split('.');
   let cur = target;
   for (let i = 0; i < parts.length - 1; i += 1) {
@@ -171,9 +286,10 @@ function setDeep(target, fieldPath, value) {
 
 export function applyFlatConfigUpdates(baseConfig, flatUpdates) {
   const next = structuredClone(baseConfig);
-  for (const [fieldPath, value] of Object.entries(flatUpdates)) {
+  for (const [fieldPath, value] of Object.entries(flatUpdates || {})) {
     setDeep(next, fieldPath, coerceValue(value, fieldPath));
   }
+  validateConfigSecurity(next);
   return next;
 }
 
@@ -226,6 +342,7 @@ const EXPERIENCE_FIELDS = [
   'name',
   'description',
   'rbxlPath',
+  'rbxlPaths',
   'iconPath',
   'thumbnailPath',
   'templatePlaceId',
@@ -234,9 +351,15 @@ const EXPERIENCE_FIELDS = [
   'allowCopying',
   'socialSlotType',
   'placeAccessControl',
+  'allowPrivateServers',
+  'privateServerPrice',
+  'playableDevices',
+  'discordServerUrl',
 ];
 
 const MONITOR_FIELDS = [
+  'enabled',
+  'autoMonitor',
   'healthUrl',
   'intervalMs',
   'retryCount',
@@ -245,15 +368,27 @@ const MONITOR_FIELDS = [
   'discordChannelId',
   'discordPlayerCountChannelId',
   'discordStatusChannelId',
+  'discordFavoritesChannelId',
+  'discordVisitsChannelId',
+  'discordGameLinkEmbedChannelId',
+  'discordBugChannelId',
+  'discordUpdatesChannelId',
+  'discordCodesChannelId',
+  'discordBoosterCodesChannelId',
+  'statisticsIntervalMs',
   'discordScanPages',
   'discordDeleteAllMessagesInChannel',
   'discordBotToken',
   'discordLastGameLinkMessageId',
+  'discordGroupUrl',
+  'discordAnnounceHere',
+  'discordBotIconUrl',
 ];
 
 const PLACE_IDS_FIELDS = ['outputPath'];
 const PLACE_IDS_GIT_FIELDS = [
   'enabled',
+  'required',
   'repositoryPath',
   'remoteRawUrl',
   'commitMessage',
@@ -262,10 +397,34 @@ const PLACE_IDS_GIT_FIELDS = [
   'githubBranch',
   'githubFilePath',
 ];
+const QUESTIONNAIRE_FIELDS = [
+  'enabled',
+  'required',
+  'fallbackQuestionnaireId',
+  'questionIds',
+  'answers',
+  'answersByQuestionId',
+];
 
 const GAME_INTEGRATION_FIELDS = ['publicBaseUrl'];
 
-function humanizeLabel(key) {
+function humanizeLabel(key, fieldPath = '') {
+  const pathLabels = {
+    'experience.playableDevices': 'Playable devices (JSON array)',
+    'experience.rbxlPaths': 'Per-place RBXL paths (JSON object; optional)',
+    'experience.allowPrivateServers': 'Enable private servers',
+    'experience.privateServerPrice': 'Private server price (Robux)',
+    'experience.discordServerUrl': 'Discord server invite URL',
+    'questionnaire.enabled': 'Enable experience questionnaire',
+    'questionnaire.required': 'Fail upload if questionnaire submission fails',
+    'questionnaire.fallbackQuestionnaireId': 'Fallback questionnaire ID',
+    'questionnaire.questionIds': 'Question IDs (JSON array)',
+    'questionnaire.answers': 'Answers (JSON array)',
+    'questionnaire.answersByQuestionId': 'Answers by question ID (JSON object)',
+    'placeIds.git.enabled': 'GitHub place-ID export enabled',
+    'placeIds.git.required': 'Fail upload if GitHub place-ID export fails',
+  };
+  if (pathLabels[fieldPath]) return pathLabels[fieldPath];
   const labels = {
     experienceId: 'Experience ID',
     userId: 'User ID',
@@ -332,17 +491,27 @@ function formatFieldValue(value) {
 }
 
 function makeField(fullPath, label, value) {
-  const text = formatFieldValue(value);
+  const sensitive = isSensitivePath(fullPath) || isSensitivePath(label);
+  const visibleValue = isJsonConfigField(fullPath)
+    ? (value === '' || value === null || value === undefined ? defaultJsonConfigValue(fullPath) : value)
+    : value;
+  const text = sensitive && visibleValue
+    ? ''
+    : isJsonConfigField(fullPath)
+      ? JSON.stringify(visibleValue, null, 2)
+      : formatFieldValue(visibleValue);
   return {
     key: fullPath,
     label,
     value: text,
-    sensitive: isSensitivePath(fullPath) || isSensitivePath(label),
+    sensitive,
+    hasValue: sensitive ? Boolean(visibleValue) : true,
     assetIdList: isAssetIdArrayPath(fullPath),
     multiline:
       isAssetIdArrayPath(fullPath) ||
+      isJsonConfigField(fullPath) ||
       text.includes('\n') ||
-      (text.length > 120 && !isSensitivePath(fullPath)),
+      (text.length > 120 && !sensitive),
   };
 }
 
@@ -358,27 +527,37 @@ function fieldsFromObject(obj, prefix, fieldOrder = null) {
       continue;
     }
     const value = hasKey ? obj[key] : '';
+    const fullPath = `${prefix}.${key}`;
+    if (isJsonConfigField(fullPath)) {
+      fields.push(makeField(fullPath, humanizeLabel(key, fullPath), value));
+      continue;
+    }
     if (ASSET_ARRAY_KEYS.has(key) && Array.isArray(value)) {
-      fields.push(makeField(`${prefix}.${key}`, humanizeLabel(key), formatAssetIdArray(value)));
+      fields.push(makeField(fullPath, humanizeLabel(key, fullPath), formatAssetIdArray(value)));
       continue;
     }
     if (isPlainObject(value) || Array.isArray(value)) {
       continue;
     }
-    fields.push(makeField(`${prefix}.${key}`, humanizeLabel(key), value));
+    fields.push(makeField(fullPath, humanizeLabel(key, fullPath), value));
   }
   for (const [key, value] of Object.entries(obj)) {
     if (keys.includes(key)) {
       continue;
     }
+    const fullPath = `${prefix}.${key}`;
+    if (isJsonConfigField(fullPath)) {
+      fields.push(makeField(fullPath, humanizeLabel(key, fullPath), value));
+      continue;
+    }
     if (ASSET_ARRAY_KEYS.has(key) && Array.isArray(value)) {
-      fields.push(makeField(`${prefix}.${key}`, humanizeLabel(key), formatAssetIdArray(value)));
+      fields.push(makeField(fullPath, humanizeLabel(key, fullPath), formatAssetIdArray(value)));
       continue;
     }
     if (isPlainObject(value) || Array.isArray(value)) {
       continue;
     }
-    fields.push(makeField(`${prefix}.${key}`, humanizeLabel(key), value));
+    fields.push(makeField(fullPath, humanizeLabel(key, fullPath), value));
   }
   return fields;
 }
@@ -476,7 +655,16 @@ function buildConfigSections(config) {
 
   if (config.experience) {
     const exp = config.experience;
-    const fields = fieldsFromObject(exp, 'experience', EXPERIENCE_FIELDS);
+    const experienceView = {
+      ...exp,
+      allowPrivateServers: exp.allowPrivateServers ?? true,
+      privateServerPrice: exp.privateServerPrice ?? 0,
+      playableDevices: Array.isArray(exp.playableDevices) && exp.playableDevices.length
+        ? exp.playableDevices
+        : ['Computer', 'Phone', 'Tablet', 'Console'],
+      discordServerUrl: exp.discordServerUrl ?? 'https://discord.gg/N2mfmmNkta',
+    };
+    const fields = fieldsFromObject(experienceView, 'experience', EXPERIENCE_FIELDS);
     if (exp.places && typeof exp.places === 'object') {
       for (const [placeKey, placeValue] of Object.entries(exp.places)) {
         if (placeValue && typeof placeValue === 'object') {
@@ -508,17 +696,45 @@ function buildConfigSections(config) {
     });
   }
 
-  if (config.placeIds) {
-    const fields = fieldsFromObject(config.placeIds, 'placeIds', PLACE_IDS_FIELDS);
-    if (config.placeIds.git) {
-      fields.push(...fieldsFromObject(config.placeIds.git, 'placeIds.git', PLACE_IDS_GIT_FIELDS));
-    }
-    sections.push({
-      id: 'placeIds',
-      title: 'Place IDs export',
-      fields,
-    });
-  }
+  const questionnaire = config.questionnaire || {};
+  const questionnaireView = {
+    enabled: questionnaire.enabled ?? false,
+    required: questionnaire.required ?? false,
+    fallbackQuestionnaireId: questionnaire.fallbackQuestionnaireId || '0ac4af75-ace3-f4ca-676d-8310b6473cef',
+    questionIds: Array.isArray(questionnaire.questionIds) ? questionnaire.questionIds : [],
+    answers: Array.isArray(questionnaire.answers) ? questionnaire.answers : [],
+    answersByQuestionId: isPlainObject(questionnaire.answersByQuestionId) ? questionnaire.answersByQuestionId : {},
+  };
+  sections.push({
+    id: 'questionnaire',
+    title: 'Experience questionnaire',
+    subtitle: 'Use actual question IDs and truthful answers from Roblox; do not guess answers.',
+    fields: fieldsFromObject(questionnaireView, 'questionnaire', QUESTIONNAIRE_FIELDS),
+  });
+
+  // Always expose GitHub export fields, even when an older persistent
+  // /data/config.json predates the placeIds.git object. Previously the UI
+  // hid the fields entirely unless config.placeIds.git already existed.
+  const placeIds = isPlainObject(config.placeIds) ? config.placeIds : {};
+  const fields = fieldsFromObject(placeIds, 'placeIds', PLACE_IDS_FIELDS);
+  const gitConfig = isPlainObject(placeIds.git) ? placeIds.git : {};
+  const gitView = {
+    enabled: gitConfig.enabled ?? true,
+    required: gitConfig.required ?? false,
+    repositoryPath: gitConfig.repositoryPath ?? '',
+    remoteRawUrl: gitConfig.remoteRawUrl ?? 'https://raw.githubusercontent.com/z1onkurt999-star/PlaceIdsRepo/main/placeids.json',
+    commitMessage: gitConfig.commitMessage ?? 'Update place IDs',
+    githubOwner: gitConfig.githubOwner ?? 'z1onkurt999-star',
+    githubRepo: gitConfig.githubRepo ?? 'PlaceIdsRepo',
+    githubBranch: gitConfig.githubBranch ?? 'main',
+    githubFilePath: gitConfig.githubFilePath ?? 'placeids.json',
+  };
+  fields.push(...fieldsFromObject(gitView, 'placeIds.git', PLACE_IDS_GIT_FIELDS));
+  sections.push({
+    id: 'placeIds',
+    title: 'Place IDs export',
+    fields,
+  });
 
   if (config.gameIntegration) {
     sections.push({

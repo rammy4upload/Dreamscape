@@ -34,11 +34,11 @@ async function createFreshShirt(client, credentials, productKey, entry) {
   const pngBuffer = await renderTshirtImage({
     displayName: entry.displayName,
     priceRobux: entry.priceRobux,
-    productKey,
+    productKey: normalizedProductKey,
   });
 
   const shirtName = uniqueShirtName(entry.displayName, entry.shirts.length);
-  const description = `Pokemon Brick Bronze premium item: ${entry.displayName} (${productKey})`;
+  const description = `Monster Brick Bronze premium item: ${entry.displayName} (${productKey})`;
   const assetId = await uploadTshirt(client, {
     name: shirtName,
     description,
@@ -61,8 +61,22 @@ async function createFreshShirt(client, credentials, productKey, entry) {
 }
 
 export async function resolveProductForUser({ productKey, userId, displayName, priceRobux }) {
-  if (!productKey || !userId) {
-    throw new Error('productKey and userId are required');
+  const normalizedProductKey = String(productKey || '').trim();
+  const normalizedUserId = Number(userId);
+  if (!/^[A-Za-z0-9._:-]{1,80}$/.test(normalizedProductKey)) {
+    throw new Error('Invalid productKey');
+  }
+  if (!Number.isSafeInteger(normalizedUserId) || normalizedUserId <= 0) {
+    throw new Error('Invalid userId');
+  }
+  if (displayName != null && String(displayName).trim().length > 80) {
+    throw new Error('displayName is too long');
+  }
+  if (priceRobux !== undefined && priceRobux !== null && priceRobux !== '') {
+    const n = Number(priceRobux);
+    if (!Number.isFinite(n) || n < 0 || n > 1_000_000) {
+      throw new Error('Invalid priceRobux');
+    }
   }
 
   const credentials = resolveRobloxCredentials();
@@ -73,21 +87,21 @@ export async function resolveProductForUser({ productKey, userId, displayName, p
   }
 
   const store = loadProductStore();
-  const entry = getProductEntry(store, productKey);
+  const entry = getProductEntry(store, normalizedProductKey);
   if (displayName) {
     entry.displayName = displayName;
   }
   if (priceRobux !== undefined && priceRobux !== null) {
     entry.priceRobux = Number(priceRobux);
   }
-  store.products[productKey] = entry;
+  store.products[normalizedProductKey] = entry;
   saveProductStore(store);
 
   const client = createUploadClient(credentials.cookie);
-  const available = await findAvailableShirt(client, entry, userId);
+  const available = await findAvailableShirt(client, entry, normalizedUserId);
   if (available) {
     return {
-      productKey,
+      productKey: normalizedProductKey,
       assetId: available.shirt.assetId,
       assetType: 'TShirt',
       priceRobux: available.shirt.priceRobux,
@@ -99,7 +113,7 @@ export async function resolveProductForUser({ productKey, userId, displayName, p
 
   const fresh = await createFreshShirt(client, credentials, productKey, entry);
   return {
-    productKey,
+    productKey: normalizedProductKey,
     assetId: fresh.shirt.assetId,
     assetType: 'TShirt',
     priceRobux: fresh.shirt.priceRobux,

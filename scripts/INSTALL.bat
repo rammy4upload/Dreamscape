@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 
 REM ===============================
-REM Pokemon Brick Bronze AutoReuploader — install
+REM Monster Brick Bronze AutoReuploader — install
 REM ===============================
 
 cd /d "%~dp0.." || exit /b 1

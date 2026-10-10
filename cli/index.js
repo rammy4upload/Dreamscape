@@ -1,8 +1,11 @@
+import { installConsoleRedaction, registerSecrets } from '../src/shared/consoleRedaction.js';
 import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import './promptBridgeClient.js';
+import { runTrackedOperation } from '../src/shared/operationRunner.js';
+import { verifyExperienceState } from '../src/shared/robloxVerification.js';
 import {
   runReuploader,
   runFullUploadPipeline,
@@ -20,7 +23,23 @@ import {
 const DEFAULT_CONFIG = process.env.CONFIG_PATH || './config.json';
 
 function readConfig(configPath) {
-  return JSON.parse(fs.readFileSync(path.resolve(configPath), 'utf8'));
+  const config = JSON.parse(fs.readFileSync(path.resolve(configPath), 'utf8'));
+  const collectSecrets = (value, key = '') => {
+    if (value == null) return;
+    if (typeof value === 'string') {
+      if (/(cookie|authorization|api[-_]?key|token|password|secret|credential)/i.test(key)) registerSecrets([value]);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) collectSecrets(item, key);
+      return;
+    }
+    if (typeof value === 'object') {
+      for (const [childKey, childValue] of Object.entries(value)) collectSecrets(childValue, childKey);
+    }
+  };
+  collectSecrets(config);
+  return config;
 }
 
 function parseCli(argv) {
@@ -73,6 +92,28 @@ function parseCli(argv) {
   return { command: 'reupload', configPath };
 }
 
+
+async function tracked(command, config, fn) {
+  const dataDir = process.env.DATA_DIR || './data';
+  const target = String(config?.accountPool?.primary?.experienceId || config?.experienceId || config?.monitor?.healthUrl || 'unknown');
+  const result = await runTrackedOperation({
+    dataDir,
+    type: command.toUpperCase(),
+    target,
+    metadata: { command, taskId: process.env.AUTO_REUPLOADER_TASK_ID || null },
+    fn,
+    verify: async (value) => {
+      const payload = value || {};
+      const placeIds = payload?.placeIds || payload?.result?.placeIds || {};
+      const universeId = payload?.universeId || payload?.result?.universeId || config?.accountPool?.primary?.experienceId || config?.experienceId;
+      const mainPlaceId = placeIds?.Main || payload?.mainPlaceId || payload?.result?.mainPlaceId || null;
+      if (!universeId && !mainPlaceId) return { verified: true, skipped: true, reason: 'No remote game target was returned by this command' };
+      return verifyExperienceState({ universeId, mainPlaceId, expectedName: config?.experience?.name || '' });
+    },
+  });
+  return result.result;
+}
+
 function programName() {
   const base = path.basename(process.argv[1] || '', '.js');
   if (base && base !== 'node' && base !== 'index') {
@@ -84,7 +125,7 @@ function programName() {
 
 function printHelp() {
   const name = programName();
-  console.log(`Pokemon Brick Bronze AutoReuploader
+  console.log(`Monster Brick Bronze AutoReuploader
 
 Usage:
   ${name} <command> [options]
@@ -188,28 +229,28 @@ export async function main() {
 
   switch (command) {
     case 'fullupload':
-      await runFullUploadPipeline(config, { configPath });
+      await tracked(command, config, () => runFullUploadPipeline(config, { configPath }));
       break;
     case 'normalupload':
-      await runNormalUploadPipeline(config, { configPath });
+      await tracked(command, config, () => runNormalUploadPipeline(config, { configPath }));
       break;
     case 'configureexperience':
-      await runConfigureExperienceOnly(config);
+      await tracked(command, config, () => runConfigureExperienceOnly(config));
       break;
     case 'pushplaceids':
-      await runPushPlaceIdsOnly(config, { configPath });
+      await tracked(command, config, () => runPushPlaceIdsOnly(config, { configPath }));
       break;
     case 'rbxlupload':
-      await runRbxlUploadOnly(config, { configPath });
+      await tracked(command, config, () => runRbxlUploadOnly(config, { configPath }));
       break;
     case 'addfriends':
-      await runGrantFriendsPipeline(config);
+      await tracked(command, config, () => runGrantFriendsPipeline(config));
       break;
     case 'grantpermissions':
-      await runGrantPermissionsPipeline(config);
+      await tracked(command, config, () => runGrantPermissionsPipeline(config));
       break;
     case 'reupload':
-      await runReuploader(config, { configPath });
+      await tracked(command, config, () => runReuploader(config, { configPath }));
       break;
     default:
       throw new Error(`Unknown command: ${command}`);

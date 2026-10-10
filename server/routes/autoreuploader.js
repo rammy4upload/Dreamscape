@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Router } from 'express';
@@ -7,6 +8,7 @@ import { serverConfig } from '../config.js';
 import { broadcast } from '../services/wsHub.js';
 import { appendDashboardConsole } from '../services/consoleLogStore.js';
 import { openTaskPrompt, waitForTaskPrompt, resolveTaskPrompt } from '../services/taskPrompts.js';
+import { listOperations } from '../../src/shared/operationStore.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '../..');
@@ -42,6 +44,38 @@ export function normalizeCommand(command) {
   return COMMAND_ALIASES[key] || `--${key}`;
 }
 
+function assertAllowedCommand(command) {
+  const normalized = normalizeCommand(command);
+  if (!Object.values(COMMAND_ALIASES).includes(normalized)) {
+    const error = new Error(`Unsupported dashboard command: ${normalized}`);
+    error.code = 'INVALID_COMMAND';
+    throw error;
+  }
+  return normalized;
+}
+
+function validateTaskArgs(args) {
+  if (!Array.isArray(args)) {
+    const error = new Error('Task args must be an array');
+    error.code = 'INVALID_ARGS';
+    throw error;
+  }
+  if (args.length > 20) {
+    const error = new Error('Too many task arguments');
+    error.code = 'INVALID_ARGS';
+    throw error;
+  }
+  return args.map((value) => {
+    const arg = String(value);
+    if (arg.length > 500 || /[\0\r\n]/.test(arg)) {
+      const error = new Error('Unsafe task argument');
+      error.code = 'INVALID_ARGS';
+      throw error;
+    }
+    return arg;
+  });
+}
+
 function createTaskId() {
   return `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -74,12 +108,18 @@ function appendLog(task, chunk) {
   }
 }
 
-export function startTask(command, args = []) {
+export function hasRunningCommand(command) {
   const normalized = normalizeCommand(command);
+  return [...tasks.values()].some((task) => task.command === normalized && task.status === 'running');
+}
+
+export function startTask(command, args = []) {
+  const normalized = assertAllowedCommand(command);
+  const safeArgs = validateTaskArgs(args);
   const id = createTaskId();
   const child = spawn(
     process.execPath,
-    [path.join(projectRoot, 'cli/index.js'), normalized, '--config', serverConfig.configPath, ...args],
+    [path.join(projectRoot, 'cli/index.js'), normalized, '--config', serverConfig.configPath, ...safeArgs],
     {
     cwd: projectRoot,
     env: {
@@ -101,7 +141,7 @@ export function startTask(command, args = []) {
   const task = {
     id,
     command: normalized,
-    args,
+    args: safeArgs,
     process: child,
     logs: [],
     status: 'running',
@@ -154,8 +194,53 @@ export function startTask(command, args = []) {
 const router = Router();
 router.use(requireDashboardAuth);
 
+router.post('/lock/clear', async (_req, res) => {
+  const lockPath = path.join(path.resolve(serverConfig.dataDir), 'operation.lock');
+  if (!fs.existsSync(lockPath)) return res.json({ ok: true, cleared: false, message: 'No operation lock exists.' });
+
+  let holder = null;
+  try { holder = JSON.parse(fs.readFileSync(lockPath, 'utf8')); } catch {}
+  const originalOwner = holder?.owner || null;
+  const holderPid = Number(holder?.pid || 0);
+  const trackedTask = [...tasks.values()].find((task) => task.status === 'running' && Number(task.process?.pid) === holderPid);
+
+  if (trackedTask && trackedTask.process && trackedTask.process.exitCode == null) {
+    appendDashboardConsole(`[dashboard] Stop requested for locked ${holder?.operationType || 'operation'} task (pid ${holderPid}).\n`, { taskId: trackedTask.id, broadcast: true });
+    try { trackedTask.process.kill('SIGTERM'); } catch {}
+    await Promise.race([
+      new Promise((resolve) => trackedTask.process.once('close', resolve)),
+      new Promise((resolve) => setTimeout(resolve, 4000))
+    ]);
+    if (trackedTask.process.exitCode == null && trackedTask.process.signalCode == null) {
+      try { trackedTask.process.kill('SIGKILL'); } catch {}
+      await Promise.race([
+        new Promise((resolve) => trackedTask.process.once('close', resolve)),
+        new Promise((resolve) => setTimeout(resolve, 1500))
+      ]);
+    }
+  }
+
+  // Re-read before unlinking so a newly acquired lock is never removed by this request.
+  if (!fs.existsSync(lockPath)) return res.json({ ok: true, cleared: true, stoppedTask: Boolean(trackedTask), message: 'Operation stopped and lock released.' });
+  let current = null;
+  try { current = JSON.parse(fs.readFileSync(lockPath, 'utf8')); } catch {}
+  if (originalOwner && current?.owner && current.owner !== originalOwner) {
+    return res.status(409).json({ error: 'The operation lock changed while clearing; the newer lock was left untouched.' });
+  }
+
+  try {
+    fs.rmSync(lockPath, { force: true });
+    const message = trackedTask ? 'Stopped the locked dashboard task and cleared its lock.' : 'Cleared the operation lock. If another process is still uploading, stop it before starting a new operation.';
+    appendDashboardConsole(`[dashboard] ${message}\n`, { broadcast: true });
+    return res.json({ ok: true, cleared: true, stoppedTask: Boolean(trackedTask), message });
+  } catch (error) {
+    return res.status(500).json({ error: `Could not clear operation lock: ${error.message}` });
+  }
+});
+
 router.get('/tasks', (_req, res) => {
   res.json({
+    operations: listOperations(serverConfig.dataDir, 50),
     tasks: [...tasks.values()].map((task) => ({
       id: task.id,
       command: task.command,
@@ -186,6 +271,9 @@ router.get('/tasks/:id', (req, res) => {
 
 router.post('/tasks', (req, res) => {
   const { command = 'reupload', args = [] } = req.body || {};
+  if (hasRunningCommand(command)) {
+    return res.status(409).json({ error: 'An operation with this command is already running.' });
+  }
   const task = startTask(command, args);
   return res.status(201).json({ id: task.id, status: task.status, command: task.command });
 });

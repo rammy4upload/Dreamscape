@@ -1,5 +1,6 @@
 import fs from 'fs';
 import { dataPath, ensureDataDir } from '../config.js';
+import { atomicWriteJson } from '../../src/shared/atomicStore.js';
 
 let authEpoch = 0;
 let initialized = false;
@@ -10,11 +11,7 @@ function authMetaPath() {
 
 function persistAuthEpoch() {
   ensureDataDir();
-  fs.writeFileSync(
-    authMetaPath(),
-    JSON.stringify({ authEpoch, updatedAt: new Date().toISOString() }, null, 2),
-    'utf8'
-  );
+  atomicWriteJson(authMetaPath(), { authEpoch, updatedAt: new Date().toISOString() }, { backup: true });
 }
 
 export function initDashboardAuth() {

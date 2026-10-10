@@ -108,7 +108,6 @@ export function getIntegrationManifest(req) {
     name,
     repoPath: `assets/luau/${name}`,
     publicUrl: origin ? `${origin}/api/integration/luau/${name}` : null,
-    dashboardUrl: origin ? `${origin}/api/dashboard/integration/luau/${name}?includeSecrets=1` : null,
   }));
 
   return {

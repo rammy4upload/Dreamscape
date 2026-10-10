@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
+import { atomicWriteFile } from './atomicStore.js';
 
 /** Roblox experience icons must be 512×512 PNG. */
 export async function ensureExperienceIconFile(imagePath) {
@@ -69,6 +70,6 @@ export async function freshenImageFile(imagePath) {
     .png()
     .toBuffer();
 
-  fs.writeFileSync(resolved, out);
+  atomicWriteFile(resolved, out, { backup: false });
   return { path: resolved, x, y, before, after };
 }

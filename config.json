@@ -43,8 +43,8 @@
     ]
   },
   "experience": {
-    "name": "[⭐️] Pokemon Brick Bronze: Project Name",
-    "description": "🌍 Explore the world of Roria in a massive creature-catching RPG!\n\nCapture, train, and battle powerful creatures as you build your ultimate team. Travel across unique regions, discover rare encounters, and uncover the mysteries hidden throughout your journey.\n\n⚔️ Features\n• Catch and train a wide variety of creatures\n• Explore a story-driven adventure\n• Trade and play with friends\n\n🔗 Community Group:\nhttps://www.roblox.com/communities/1/Project-Name#!/about\n\n🎁 Community Rewards\nJoin the group above for exclusive bonuses:\n• Extra PC storage\n• Exp. Share and charms\n• Increased shiny & legendary chances\n\n🎉 Community Server Perks\nJoin via group page for more bonuses:\n• Redeem exclusive codes\n• Giveaways and events\n• Bug reports & updates\n\n📱 Play Anywhere\nAvailable on Desktop, Mobile, and Console\n\n👍 Like and ⭐ Favorite to support the game!\n\n🏷️ Pokemon, Pokemon Brick Bronze, Project Bronze, Project Pokemon, Pikachu, Project Bronze Forever, Pokemon Bronze Forever",
+    "name": "[⭐️] Monster Brick Bronze: Project Name",
+    "description": "🌍 Explore the world of Roria in a massive creature-catching RPG!\n\nCapture, train, and battle powerful creatures as you build your ultimate team. Travel across unique regions, discover rare encounters, and uncover the mysteries hidden throughout your journey.\n\n⚔️ Features\n• Catch and train a wide variety of creatures\n• Explore a story-driven adventure\n• Trade and play with friends\n\n🔗 Community Group:\nhttps://www.roblox.com/communities/1/Project-Name#!/about\n\n🎁 Community Rewards\nJoin the group above for exclusive bonuses:\n• Extra PC storage\n• Exp. Share and charms\n• Increased shiny & legendary chances\n\n🎉 Community Server Perks\nJoin via group page for more bonuses:\n• Redeem exclusive codes\n• Giveaways and events\n• Bug reports & updates\n\n📱 Play Anywhere\nAvailable on Desktop, Mobile, and Console\n\n👍 Like and ⭐ Favorite to support the game!\n\n🏷️ Monster, Monster Brick Bronze, Project Bronze, Project Monster, Monster, Project Bronze Forever, Monster Bronze Forever",
     "rbxlPath": "./game.rbxl",
     "uploadStamp": {
       "enabled": true,
@@ -60,7 +60,7 @@
     "placeAccessControl": "FullyOpen",
     "places": {
       "Main": {
-        "name": "[⭐️] Pokemon Brick Bronze: Project Name"
+        "name": "[⭐️] Monster Brick Bronze: Project Name"
       },
       "Battle": {
         "name": "Project Name: Battle"
@@ -68,18 +68,38 @@
       "Trade": {
         "name": "Project Name: Trade"
       }
-    }
+    },
+    "allowPrivateServers": true,
+    "privateServerPrice": 0,
+    "playableDevices": [
+      "Computer",
+      "Phone",
+      "Tablet",
+      "Console"
+    ],
+    "discordServerUrl": "https://discord.gg/N2mfmmNkta"
   },
   "monitor": {
-    "healthUrl": "https://www.roblox.com/games/Your-Place-ID-Here",
-    "intervalMs": 600000,
-    "discordChannelId": "LINK_CHANNEL_ID_HERE",
-    "discordPlayerCountChannelId": "PLAYER_COUNT_CHANNEL_ID_HERE",
-    "discordStatusChannelId": "GAME_STATUS_CHANNEL_ID_HERE",
-    "discordBotToken": "DISCORD_BOT_TOKEN_HERE"
+    "healthUrl": "",
+    "intervalMs": 300000,
+    "discordChannelId": "1557731440676966420",
+    "discordPlayerCountChannelId": "1275393110213656667",
+    "discordStatusChannelId": "1226004017394614325",
+    "discordBotToken": "<YOUR_DISCORD_BOT_TOKEN>",
+    "enabled": true,
+    "autoMonitor": true,
+    "retryCount": 2,
+    "retryDelayMs": 30000,
+    "confirmDelayMs": 5000,
+    "discordFavoritesChannelId": "1275393071089192960",
+    "discordVisitsChannelId": "1275393127993311253",
+    "statisticsIntervalMs": 60000,
+    "discordScanPages": 50,
+    "discordDeleteAllMessagesInChannel": false,
+    "discordLastGameLinkMessageId": ""
   },
   "gameIntegration": {
-    "publicBaseUrl": "https://autoreuploader-production.up.railway.app"
+    "publicBaseUrl": ""
   },
   "placeIds": {
     "outputPath": "/data/placeids.json",
@@ -127,5 +147,13 @@
       "audioAssets": [],
       "animationAssets": []
     }
-  ]
+  ],
+  "questionnaire": {
+    "enabled": true,
+    "required": false,
+    "fallbackQuestionnaireId": "0ac4af75-ace3-f4ca-676d-8310b6473cef",
+    "questionIds": [],
+    "answers": [],
+    "answersByQuestionId": {}
+  }
 }

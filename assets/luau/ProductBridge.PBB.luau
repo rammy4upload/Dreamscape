@@ -1,5 +1,5 @@
 --[[
-	Pokemon Brick Bronze AutoReuploader — ProductBridge (PBB)
+	Monster Brick Bronze AutoReuploader — ProductBridge (PBB)
 	Docs: docs/product-bridge.md
 	Place as ServerModules/ProductBridge.luau
 ]]

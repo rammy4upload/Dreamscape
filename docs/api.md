@@ -6,7 +6,8 @@ Base URL: `https://<your-domain>` (e.g. `autoreuploader-production.up.railway.ap
 
 | Route | Description |
 |-------|-------------|
-| `GET /health` | Deploy status, warnings, integration URLs |
+| `GET /health` | Railway liveness/readiness signal; does not expose secrets |
+| `GET /ready` | Application readiness including deployment checks and Roblox health |
 | `GET /api/integration/manifest` | Luau download links + endpoints |
 | `GET /api/integration/luau/:file` | ProductBridge Luau (`baseUrl` filled) |
 
@@ -25,7 +26,8 @@ Base URL: `https://<your-domain>` (e.g. `autoreuploader-production.up.railway.ap
 | `GET /` | Web UI |
 | `WS /ws` | Live console, prompts, task logs |
 | `POST /api/dashboard/run` | Start CLI task |
-| `GET /api/dashboard/integration/luau/:file?includeSecrets=1` | Luau with API key filled |
+| `GET /api/dashboard/integration/luau/:file` | Protected Luau download with secrets kept out of the response |
+| `GET /api/health` | Protected application health snapshot |
 | `PUT /api/dashboard/config` | Save config fields |
 
 ## ProductBridge resolve body

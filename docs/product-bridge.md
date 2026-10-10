@@ -37,7 +37,7 @@ Downloaded Luau gets `baseUrl` auto-filled. Set URL in one place (first wins):
 | Repo (generic) | [assets/luau/ProductBridge.luau](../assets/luau/ProductBridge.luau) |
 | Live manifest | `https://<domain>/api/integration/manifest` |
 | Live PBB module | `https://<domain>/api/integration/luau/ProductBridge.PBB.luau` |
-| Dashboard (+ API key) | `https://<domain>/api/dashboard/integration/luau/ProductBridge.PBB.luau?includeSecrets=1` |
+| Dashboard copy | `https://<domain>/api/dashboard/integration/luau/ProductBridge.PBB.luau` (never includes secrets) |
 
 Repo placeholders: `__AUTOREUPLOADER_BASE_URL__`, `__AUTOREUPLOADER_API_KEY__`.
 
@@ -54,7 +54,7 @@ Example: [autoreuploader-production.up.railway.app/api/integration/manifest](htt
 
 ## PBB copy wiring
 
-For **Pokemon Brick Bronze**
+For **Monster Brick Bronze**
 
 ### 1. Add module
 

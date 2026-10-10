@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import { serverConfig, ensureDataDir } from '../config.js';
+import { atomicWriteFile } from '../../src/shared/atomicStore.js';
 
 const TSHIRT_WIDTH = 585;
 const TSHIRT_HEIGHT = 559;
@@ -17,7 +18,7 @@ async function buildDefaultTemplate() {
       </defs>
       <rect width="100%" height="100%" fill="url(#bg)"/>
       <rect x="24" y="24" width="${TSHIRT_WIDTH - 48}" height="${TSHIRT_HEIGHT - 48}" rx="18" fill="#0f3460" stroke="#e94560" stroke-width="4"/>
-      <text x="50%" y="42%" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="36" font-weight="700">POKEMON BRICK BRONZE</text>
+      <text x="50%" y="42%" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="36" font-weight="700">MONSTER BRICK BRONZE</text>
       <text x="50%" y="58%" text-anchor="middle" fill="#e94560" font-family="Arial, sans-serif" font-size="28">PREMIUM ITEM</text>
     </svg>`;
   return sharp(Buffer.from(svg)).png().toBuffer();
@@ -36,7 +37,7 @@ async function loadTemplateBuffer() {
   }
 
   const buffer = await buildDefaultTemplate();
-  fs.writeFileSync(generated, buffer);
+  atomicWriteFile(generated, buffer, { backup: false });
   return buffer;
 }
 

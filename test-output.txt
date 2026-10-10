@@ -1,0 +1,102 @@
+
+> autoreuploader@1.0.0 test
+> node --test test/*.test.js && node --check index.js && node --check cli/index.js && node --check bin/autoreuploader.js && node --check src/shared/robloxClient.js && node --check src/shared/httpClient.js && node --check src/shared/operationStore.js && node --check src/shared/operationRunner.js && node --check src/shared/robloxVerification.js && node --check cli/reuploader.js && node --check cli/permissions.js && node --check cli/rbxlUploadPatch.js && node --check server/index.js && node --check server/config.js
+
+TAP version 13
+# [RETRY] 2026-10-08T13:08:42.655Z Roblox request retry scheduled {"operation":"GET https://example.test/secure","attempt":1,"status":503,"delayMs":100}
+# Subtest: atomic JSON writes create a usable backup and recover corrupted primary
+ok 1 - atomic JSON writes create a usable backup and recover corrupted primary
+  ---
+  duration_ms: 4.557809
+  type: 'test'
+  ...
+# Subtest: secret redaction never prints sensitive values
+ok 2 - secret redaction never prints sensitive values
+  ---
+  duration_ms: 1.250334
+  type: 'test'
+  ...
+# Subtest: file lock rejects a duplicate live operation
+ok 3 - file lock rejects a duplicate live operation
+  ---
+  duration_ms: 2.281549
+  type: 'test'
+  ...
+# Subtest: file lock recovers a lock owned by a dead process without waiting for stale timeout
+ok 4 - file lock recovers a lock owned by a dead process without waiting for stale timeout
+  ---
+  duration_ms: 0.8271
+  type: 'test'
+  ...
+# Subtest: operation journal recovers interrupted states
+ok 5 - operation journal recovers interrupted states
+  ---
+  duration_ms: 1.7124
+  type: 'test'
+  ...
+# Subtest: config update rejects unsafe prototype paths and path traversal
+ok 6 - config update rejects unsafe prototype paths and path traversal
+  ---
+  duration_ms: 0.730458
+  type: 'test'
+  ...
+# Subtest: Roblox client does not retry authentication failures
+ok 7 - Roblox client does not retry authentication failures
+  ---
+  duration_ms: 27.341558
+  type: 'test'
+  ...
+# [INFO] 2026-10-08T13:08:42.765Z Operation started {"operation":"UPLOAD-1791464922764-3a605bf2","type":"UPLOAD","target":"123"}
+# [INFO] 2026-10-08T13:08:42.771Z Operation started {"operation":"UPLOAD-1791464922771-3357385f","type":"UPLOAD","target":"123"}
+# [SUCCESS] 2026-10-08T13:08:42.774Z Operation verified after transport/error condition {"operation":"UPLOAD-1791464922771-3357385f","type":"UPLOAD","target":"123"}
+# Subtest: Roblox client retries a 503 and succeeds
+ok 8 - Roblox client retries a 503 and succeeds
+  ---
+  duration_ms: 103.563813
+  type: 'test'
+  ...
+# Subtest: verification rejects deleted Roblox experiences and unexpected names
+ok 9 - verification rejects deleted Roblox experiences and unexpected names
+  ---
+  duration_ms: 2.4645
+  type: 'test'
+  ...
+# Subtest: verification fails closed on malformed or absent game metadata
+ok 10 - verification fails closed on malformed or absent game metadata
+  ---
+  duration_ms: 1.103479
+  type: 'test'
+  ...
+# Subtest: placeholder secrets are treated as missing
+ok 11 - placeholder secrets are treated as missing
+  ---
+  duration_ms: 0.827464
+  type: 'test'
+  ...
+# Subtest: uncertain operation remains recovery-required until remote state can be verified
+ok 12 - uncertain operation remains recovery-required until remote state can be verified
+  ---
+  duration_ms: 8.356015
+  type: 'test'
+  ...
+# Subtest: operation can be marked successful after an uncertain transport failure when verification succeeds
+ok 13 - operation can be marked successful after an uncertain transport failure when verification succeeds
+  ---
+  duration_ms: 4.012899
+  type: 'test'
+  ...
+# Subtest: console redaction hides registered secrets in legacy log strings
+ok 14 - console redaction hides registered secrets in legacy log strings
+  ---
+  duration_ms: 1.003499
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 271.662136

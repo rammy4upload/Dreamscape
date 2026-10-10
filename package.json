@@ -2,7 +2,7 @@
   "name": "autoreuploader",
   "version": "1.0.0",
   "type": "module",
-  "description": "Pokemon Brick Bronze AutoReuploader: Roblox experience automation, ProductBridge, codes API, health monitor.",
+  "description": "Monster Brick Bronze AutoReuploader: Roblox experience automation, ProductBridge, codes API, health monitor.",
   "main": "cli/index.js",
   "bin": {
     "autoreuploader": "./bin/autoreuploader.js"
@@ -22,7 +22,7 @@
     "service": "node cli/index.js --service",
     "channelstatusservice": "node cli/index.js --channelstatusservice",
     "add-backup-account": "node cli/index.js --add-backup-account",
-    "test": "node --check index.js && node --check cli/index.js && node --check bin/autoreuploader.js && node --check src/shared/robloxClient.js && node --check cli/reuploader.js && node --check cli/permissions.js && node --check cli/rbxlUploadPatch.js && node --check server/index.js"
+    "test": "node --test test/*.test.js && node --check index.js && node --check cli/index.js && node --check bin/autoreuploader.js && node --check src/shared/robloxClient.js && node --check src/shared/httpClient.js && node --check src/shared/operationStore.js && node --check src/shared/operationRunner.js && node --check src/shared/robloxVerification.js && node --check cli/reuploader.js && node --check cli/permissions.js && node --check cli/rbxlUploadPatch.js && node --check server/index.js && node --check server/config.js"
   },
   "keywords": [],
   "author": "",

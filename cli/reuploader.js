@@ -1,9 +1,16 @@
 import fs from 'fs';
+import { createHash } from 'node:crypto';
 import path from 'path';
 import { execFile, spawn } from 'child_process';
 import { promisify } from 'util';
 import readline from 'readline/promises';
-import { RobloxClient, readBinaryFile } from '../src/shared/robloxClient.js';
+import { RobloxClient, RobloxOpenCloudClient, readBinaryFile } from '../src/shared/robloxClient.js';
+import { requestJson, requestWithRetry } from '../src/shared/httpClient.js';
+import { atomicWriteFile } from '../src/shared/atomicStore.js';
+import { runTrackedOperation, getOperationLockHolder } from '../src/shared/operationRunner.js';
+import { verifyExperienceState } from '../src/shared/robloxVerification.js';
+import { setSystemStatus, SYSTEM_STATUS } from '../server/services/discordStatusManager.js';
+import { DiscordClient } from '../server/services/discordClient.js';
 import { grantAllPermissions, grantPermissionsForAccounts } from './permissions.js';
 import {
   waitForEnterPrompt,
@@ -36,7 +43,7 @@ function coerceConfigBoolean(value, defaultValue = false) {
   return defaultValue;
 }
 
-function withPrimaryAccountApplied(config) {
+export function withPrimaryAccountApplied(config) {
   const pool = config.accountPool;
   if (!pool?.primary) {
     return config;
@@ -44,13 +51,27 @@ function withPrimaryAccountApplied(config) {
 
   const primary = pool.primary;
   const next = structuredClone(config);
-  const isGroup = coerceConfigBoolean(primary.isGroup, false);
+  const existingCreator = next.creatorAccount || {};
+  const hasGroupCredentialFields =
+    (primary.groupId !== undefined && primary.groupId !== null && String(primary.groupId).trim() !== '') ||
+    Boolean(trimConfigSecret(primary.groupApiKey)) ||
+    Boolean(trimConfigSecret(primary.groupOwnerCookie)) ||
+    Boolean(trimConfigSecret(existingCreator.groupId)) ||
+    Boolean(trimConfigSecret(existingCreator.groupApiKey)) ||
+    Boolean(trimConfigSecret(existingCreator.groupOwnerCookie));
+  const isGroup = coerceConfigBoolean(primary.isGroup, false) || hasGroupCredentialFields;
+  const groupOwnerCookie =
+    trimConfigSecret(primary.groupOwnerCookie) ||
+    trimConfigSecret(existingCreator.groupOwnerCookie);
+  const effectiveCookie = isGroup && groupOwnerCookie
+    ? groupOwnerCookie
+    : (primary.cookie || next.creatorAccount?.cookie);
 
   next.creatorAccount = {
     ...(next.creatorAccount || {}),
     name: primary.name || next.creatorAccount?.name || 'Primary Account',
     userId: primary.userId || next.creatorAccount?.userId,
-    cookie: primary.cookie || next.creatorAccount?.cookie,
+    cookie: effectiveCookie,
     apiKey: primary.apiKey || next.creatorAccount?.apiKey,
     isGroup
   };
@@ -61,6 +82,10 @@ function withPrimaryAccountApplied(config) {
     }
     if (primary.groupApiKey) {
       next.creatorAccount.groupApiKey = primary.groupApiKey;
+    } else if (primary.apiKey) {
+      // Existing group deployments sometimes stored the group Open Cloud key
+      // in the generic apiKey field. Promote it to the explicit group field.
+      next.creatorAccount.groupApiKey = primary.apiKey;
     }
     if (
       primary.groupOwnerUserId !== undefined &&
@@ -214,7 +239,7 @@ function normalizeMonitorKeyOrder(config) {
 function saveRawConfig(configPath, config) {
   normalizeAccountPoolKeyOrder(config);
   normalizeMonitorKeyOrder(config);
-  fs.writeFileSync(path.resolve(configPath), `${stringifyConfigWithInlineAssetArrays(config)}\n`);
+  atomicWriteFile(path.resolve(configPath), `${stringifyConfigWithInlineAssetArrays(config)}\n`, { backup: true });
 }
 
 /** Re-read and write config.json using canonical formatting (inline numeric/asset arrays, pool key order). */
@@ -893,14 +918,25 @@ function trimConfigSecret(value) {
 }
 
 function isGroupOpenCloudModeEnabled(config) {
-  if (config.accountPool?.primary) {
-    return coerceConfigBoolean(config.accountPool.primary.isGroup, false);
-  }
+  const primary = config.accountPool?.primary;
+  const inferredFromGroupFields =
+    Boolean(trimConfigSecret(primary?.groupId)) ||
+    Boolean(trimConfigSecret(primary?.groupApiKey)) ||
+    Boolean(trimConfigSecret(primary?.groupOwnerCookie)) ||
+    Boolean(trimConfigSecret(config.creatorAccount?.groupId)) ||
+    Boolean(trimConfigSecret(config.creatorAccount?.groupApiKey)) ||
+    Boolean(trimConfigSecret(config.creatorAccount?.groupOwnerCookie)) ||
+    Boolean(trimConfigSecret(config.experience?.groupId)) ||
+    Boolean(trimConfigSecret(config.experience?.groupApiKey)) ||
+    Boolean(trimConfigSecret(config.groupId)) ||
+    Boolean(trimConfigSecret(config.groupApiKey));
 
   return (
+    coerceConfigBoolean(primary?.isGroup, false) ||
     coerceConfigBoolean(config.creatorAccount?.isGroup, false) ||
     coerceConfigBoolean(config.experience?.isGroup, false) ||
-    coerceConfigBoolean(config.isGroup, false)
+    coerceConfigBoolean(config.isGroup, false) ||
+    inferredFromGroupFields
   );
 }
 
@@ -951,7 +987,11 @@ function resolveGroupOpenCloudApiKey(config, placeKey) {
     config.accountPool?.primary?.groupApiKey,
     config.creatorAccount?.groupApiKey,
     config.experience?.groupApiKey,
-    config.groupApiKey
+    config.groupApiKey,
+    // Some existing deployments store the group Open Cloud key in the generic
+    // `apiKey` field. In group mode, accept that as the group key as well.
+    config.accountPool?.primary?.apiKey,
+    config.creatorAccount?.apiKey
   ];
   for (const k of keys) {
     const t = trimConfigSecret(k);
@@ -1092,8 +1132,11 @@ async function getFriendshipStatus(client, sourceUserId, targetUserId) {
   const query = new URLSearchParams();
   query.append('userIds', targetId);
 
-  const response = await client.get(`https://friends.roblox.com/v1/users/${sourceId}/friends/statuses?${query.toString()}`);
-  return response.data?.find((status) => String(status.id) === targetId)?.status;
+  const response = await readRobloxJsonResponse(
+    client,
+    `https://friends.roblox.com/v1/users/${sourceId}/friends/statuses?${query.toString()}`
+  );
+  return response?.data?.find((status) => String(status.id) === targetId)?.status;
 }
 
 async function sendFriendRequest(client, targetUserId) {
@@ -1106,22 +1149,83 @@ async function acceptFriendRequest(client, requesterUserId) {
   return client.post(`https://friends.roblox.com/v1/users/${requesterId}/accept-friend-request`, {});
 }
 
-async function getUniversePlaces(client, universeId) {
-  return client.get(`https://develop.roblox.com/v1/universes/${universeId}/places?sortOrder=Asc&limit=100`);
+async function readRobloxJsonResponse(client, url, options = {}) {
+  const response = await client.get(url, options);
+
+  // RobloxClient.get() returns a native Response. Some older tests/mocks return
+  // the decoded object directly, so keep both forms compatible.
+  if (response && typeof response.json === 'function') {
+    return response.json();
+  }
+  return response;
 }
 
-async function getUniversePermissions(client, universeId) {
+export async function getUniversePlaces(client, universeId) {
+  return readRobloxJsonResponse(
+    client,
+    `https://develop.roblox.com/v1/universes/${universeId}/places?sortOrder=Asc&limit=100`
+  );
+}
+
+export async function getUniversePermissions(client, universeId) {
   const query = new URLSearchParams();
   query.append('ids', String(universeId));
-  const response = await client.get(`https://develop.roblox.com/v1/universes/multiget/permissions?${query.toString()}`);
-  return response.data?.[0];
+  const response = await readRobloxJsonResponse(
+    client,
+    `https://develop.roblox.com/v1/universes/multiget/permissions?${query.toString()}`
+  );
+  return response?.data?.[0] ?? null;
 }
 
-async function getUniverseMainPlaceId(client, universeId) {
+export async function getUniverseDetails(client, universeId) {
   const query = new URLSearchParams();
   query.append('universeIds', String(universeId));
-  const response = await client.get(`https://games.roblox.com/v1/games?${query.toString()}`);
-  return response.data?.[0]?.rootPlaceId;
+  const response = await readRobloxJsonResponse(
+    client,
+    `https://games.roblox.com/v1/games?${query.toString()}`
+  );
+  return response?.data?.[0] || null;
+}
+
+export async function getUniverseMainPlaceId(client, universeId) {
+  const details = await getUniverseDetails(client, universeId);
+  return details?.rootPlaceId ?? null;
+}
+
+function applyDetectedGroupOwnership(config, universeDetails) {
+  const creatorType = String(universeDetails?.creator?.type || '').trim().toLowerCase();
+  const creatorId = universeDetails?.creator?.id;
+  if (creatorType !== 'group') {
+    return false;
+  }
+
+  config.creatorAccount = config.creatorAccount || {};
+  config.creatorAccount.isGroup = true;
+
+  if (
+    (config.creatorAccount.groupId === undefined ||
+      config.creatorAccount.groupId === null ||
+      String(config.creatorAccount.groupId).trim() === '') &&
+    creatorId !== undefined &&
+    creatorId !== null &&
+    String(creatorId).trim() !== ''
+  ) {
+    config.creatorAccount.groupId = creatorId;
+  }
+
+  if (
+    (config.experience?.groupId === undefined ||
+      config.experience?.groupId === null ||
+      String(config.experience.groupId).trim() === '') &&
+    creatorId !== undefined &&
+    creatorId !== null &&
+    String(creatorId).trim() !== ''
+  ) {
+    config.experience = config.experience || {};
+    config.experience.groupId = creatorId;
+  }
+
+  return true;
 }
 
 async function resolveMainPlaceIdForStudioShortcut(client, config, universeId) {
@@ -1152,12 +1256,17 @@ async function configureUniverseCloudSettings(universeId, experience, apiKey) {
   }
 
   const voiceOn = experience.enableMicrophone !== false;
+  const configuredDevices = Array.isArray(experience.playableDevices) && experience.playableDevices.length
+    ? experience.playableDevices
+    : ['Computer', 'Phone', 'Tablet', 'Console'];
+  const normalizedDevices = new Set(configuredDevices.map((device) => String(device).trim().toLowerCase()));
+  const hasDevice = (...names) => names.some((name) => normalizedDevices.has(name));
   const body = {
-    desktopEnabled: true,
-    mobileEnabled: true,
-    tabletEnabled: true,
-    consoleEnabled: true,
-    vrEnabled: true
+    desktopEnabled: hasDevice('computer', 'desktop', 'pc', '1'),
+    mobileEnabled: hasDevice('phone', 'mobile', '2'),
+    tabletEnabled: hasDevice('tablet', '3'),
+    consoleEnabled: hasDevice('console', 'xbox', 'playstation', '4'),
+    vrEnabled: hasDevice('vr', 'virtual reality', 'virtualreality', '5'),
   };
 
   const masks = ['desktopEnabled', 'mobileEnabled', 'tabletEnabled', 'consoleEnabled', 'vrEnabled'];
@@ -1169,21 +1278,14 @@ async function configureUniverseCloudSettings(universeId, experience, apiKey) {
   const query = new URLSearchParams();
   query.append('updateMask', [...new Set(masks)].join(','));
 
-  const response = await fetch(`https://apis.roblox.com/cloud/v2/universes/${universeId}?${query.toString()}`, {
+  const openCloud = new RobloxOpenCloudClient(apiKey, 'Roblox universe configuration');
+  await openCloud.request(`https://apis.roblox.com/cloud/v2/universes/${universeId}?${query.toString()}`, {
     method: 'PATCH',
-    headers: {
-      accept: 'application/json',
-      'content-type': 'application/json',
-      'x-api-key': apiKey
-    },
-    body: JSON.stringify(body)
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    timeoutMs: 120_000,
+    operation: `configure universe ${universeId}`
   });
-
-  if (!response.ok) {
-    const bodyText = await response.text();
-    throw new Error(`Cloud universe update failed: ${response.status} ${response.statusText} ${bodyText}`);
-  }
-
   return true;
 }
 
@@ -1347,32 +1449,454 @@ async function configurePlace(client, placeId, config) {
   });
 }
 
-async function configureUniverse(client, universeId, experience, config) {
-  const desiredAvatarType = 'MorphToPlayerChoice'; // R6 + R15 (player choice)
+function resolveQuestionnaireSettings(config) {
+  const q = config?.questionnaire || {};
+  const explicitQuestionIds = q.questionIds ?? config?.questionnaireQuestionIds;
+  const explicitAnswers = q.answers ?? config?.questionnaireAnswers;
+  const byQuestionId = q.answersByQuestionId || {};
+
+  const questionIds = Array.isArray(explicitQuestionIds)
+    ? explicitQuestionIds.map((v) => String(v).trim()).filter((v) => v && !/^<[^>]+>$/.test(v) && !/^QUESTION_ID_/i.test(v))
+    : [];
+
+  let answers = Array.isArray(explicitAnswers) ? [...explicitAnswers] : [];
+  if (!answers.length && questionIds.length && byQuestionId && typeof byQuestionId === 'object') {
+    answers = questionIds.map((id) => byQuestionId[id]);
+  }
+
+  const enabled = q.enabled !== undefined
+    ? coerceConfigBoolean(q.enabled, false)
+    : (config?.runQuestionnaire !== undefined
+      ? coerceConfigBoolean(config.runQuestionnaire, false)
+      : Boolean(questionIds.length || answers.length || Object.keys(byQuestionId).length));
+
+  return {
+    enabled,
+    required: coerceConfigBoolean(q.required, false),
+    fallbackQuestionnaireId: String(
+      q.fallbackQuestionnaireId ||
+      config?.fallbackQuestionnaireId ||
+      '0ac4af75-ace3-f4ca-676d-8310b6473cef'
+    ).trim(),
+    questionIds,
+    answers,
+    byQuestionId
+  };
+}
+
+function normalizeQuestionnaireAnswer(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || /^<[^>]+>$/.test(trimmed) || /^(?:ANSWER_VALUE_|QUESTION_ID_)/i.test(trimmed) || /^PASTE_/i.test(trimmed)) return null;
+    try {
+      JSON.parse(trimmed);
+      return trimmed;
+    } catch {
+      return JSON.stringify(value);
+    }
+  }
+  return JSON.stringify(value);
+}
+
+async function runExperienceQuestionnaire(client, universeId, config) {
+  const settings = resolveQuestionnaireSettings(config);
+  if (!settings.enabled) {
+    console.log('[INFO] Experience questionnaire skipped: configure questionnaire.enabled=true and provide truthful questionIds/answers in config.json.');
+    return { skipped: true, reason: 'not-configured' };
+  }
+
+  console.log(`[INFO] Filling experience questionnaire for universe ${universeId}...`);
+
   try {
-    await client.patch(`https://develop.roblox.com/v2/universes/${universeId}/configuration`, {
-      name: experience.name,
-      description: experience.description,
-      universeAvatarType: desiredAvatarType,
-      playerAvatarType: desiredAvatarType,
-      universeAnimationType: 'PlayerChoice',
-      allowPrivateServers: false,
-      privateServerPrice: null,
-      isArchived: false,
-      permissions: {
-        IsThirdPartyTeleportAllowed: true,
-        IsThirdPartyAssetAllowed: true,
-        IsThirdPartyPurchaseAllowed: true,
-        IsClientTeleportAllowed: true
-      }
-    });
-  } catch (err) {
-    if (!isRobloxUnauthorized(err)) {
-      throw err;
+    const latest = await client.json(
+      `https://apis.roblox.com/experience-questionnaire/v1/questionnaires/${universeId}/latest`,
+      { timeoutMs: 60_000, operation: `get latest questionnaire ${universeId}` }
+    );
+
+    const questionnaireId = latest?.questionnaireId || latest?.id || settings.fallbackQuestionnaireId;
+    if (!questionnaireId) {
+      throw new Error(`Roblox did not return a questionnaireId for universe ${universeId}`);
     }
 
-    console.log(`[WARN] Creator account is not authorized to configure universe ${universeId}; skipping universe configuration.`);
+    const answerPairs = [];
+    for (let i = 0; i < settings.questionIds.length; i += 1) {
+      const questionId = settings.questionIds[i];
+      const value = normalizeQuestionnaireAnswer(settings.answers[i]);
+      if (questionId && value !== null) answerPairs.push({ questionId, value });
+    }
+
+    if (!answerPairs.length && settings.byQuestionId && typeof settings.byQuestionId === 'object') {
+      for (const [questionId, rawValue] of Object.entries(settings.byQuestionId)) {
+        const value = normalizeQuestionnaireAnswer(rawValue);
+        if (value !== null) answerPairs.push({ questionId: String(questionId), value });
+      }
+    }
+
+    if (!answerPairs.length) {
+      const discoveredQuestions = latest?.questions || latest?.questionnaire?.questions || latest?.data?.questions || [];
+      if (Array.isArray(discoveredQuestions) && discoveredQuestions.length) {
+        const summary = discoveredQuestions.map((question) => ({
+          questionId: question.questionId || question.id || question.key || null,
+          prompt: question.prompt || question.question || question.title || null,
+          type: question.type || question.questionType || null,
+          options: question.options || question.answers || undefined
+        }));
+        console.log(`[INFO] Roblox questionnaire fields returned: ${JSON.stringify(summary).slice(0, 5000)}`);
+      }
+      throw new Error(
+        'Questionnaire is enabled but no answers are configured. Open the latest questionnaire details above, then set questionnaire.questionIds + questionnaire.answers ' +
+        'or questionnaire.answersByQuestionId in config.json. Answers must accurately describe the experience; the uploader will not guess them.'
+      );
+    }
+
+    const payload = {
+      questionnaireId: String(questionnaireId),
+      response: { answers: answerPairs }
+    };
+
+    await client.put(
+      `https://apis.roblox.com/experience-questionnaire/v1/responses/${universeId}/submissions`,
+      payload,
+      { 'content-type': 'application/json' },
+      { timeoutMs: 60_000, operation: `questionnaire PUT ${universeId}` }
+    );
+
+    const bestEffort = async (label, fn) => {
+      try {
+        const response = await fn();
+        console.log(`[INFO] Questionnaire ${label}: ${response?.status ?? 'ok'}`);
+        return response;
+      } catch (err) {
+        console.log(`[WARN] Questionnaire ${label} failed: ${err.message}`);
+        return null;
+      }
+    };
+
+    await bestEffort('validate', () => client.post(
+      'https://apis.roblox.com/experience-questionnaire/v1/responses/validate',
+      payload,
+      { 'content-type': 'application/json' },
+      { timeoutMs: 60_000, retries: 2, operation: `questionnaire validate ${universeId}` }
+    ));
+
+    const submitted = await bestEffort('submit', () => client.post(
+      `https://apis.roblox.com/experience-questionnaire/v1/responses/${universeId}/submissions`,
+      payload,
+      { 'content-type': 'application/json' },
+      { timeoutMs: 60_000, retries: 2, operation: `questionnaire submit ${universeId}` }
+    ));
+    if (!submitted) {
+      throw new Error('Roblox did not accept the final questionnaire submission; the operation will not be reported as submitted. Check the configured question IDs and answer values.');
+    }
+
+    await bestEffort('preview', () => client.post(
+      'https://apis.roblox.com/experience-questionnaire/v1/responses/preview?localeCode=en_us',
+      { universeId, ...payload },
+      { 'content-type': 'application/json' },
+      { timeoutMs: 60_000, retries: 2, operation: `questionnaire preview ${universeId}` }
+    ));
+
+    await bestEffort('guidelines', () => client.post(
+      'https://apis.roblox.com/experience-guidelines-service/v1beta1/detailed-guidelines',
+      { universeId },
+      { 'content-type': 'application/json' },
+      { timeoutMs: 60_000, retries: 2, operation: `questionnaire guidelines ${universeId}` }
+    ));
+
+    const eligibility = await bestEffort('eligibility', () => client.get(
+      `https://apis.roblox.com/experience-questionnaire/v1/eligibility/${universeId}`,
+      { timeoutMs: 60_000, retries: 2, operation: `questionnaire eligibility ${universeId}` }
+    ));
+
+    let eligibilityData = null;
+    if (eligibility && typeof eligibility.json === 'function') {
+      eligibilityData = await eligibility.json().catch(() => null);
+    }
+    const rated = eligibilityData?.maturityRated ?? eligibilityData?.isEligible;
+
+    console.log(
+      `[SUCCESS] Questionnaire submitted for universe ${universeId}` +
+      (rated !== undefined && rated !== null ? ` (maturityRated=${rated})` : '')
+    );
+    return { submitted: Boolean(submitted), questionnaireId: String(questionnaireId), answers: answerPairs.length, rated };
+  } catch (err) {
+    const message = `Questionnaire failed for universe ${universeId}: ${err.message}`;
+    if (settings.required) throw new Error(message);
+    console.log(`[WARN] ${message} Continuing because questionnaire.required=false.`);
+    return { submitted: false, error: message };
+  }
+}
+
+async function ensureUniversePublicAndDevices(client, universeId, experience, config, mainPlaceId) {
+  const openCloudCredential = await selectUniverseWriteCredential(config, universeId, mainPlaceId || '0', 'Main');
+  const openCloudKey = openCloudCredential?.apiKey || '';
+  let publicDone = false;
+
+  if (openCloudKey) {
+    try {
+      const openCloud = new RobloxOpenCloudClient(openCloudKey, `Roblox public visibility ${universeId}`);
+      await openCloud.request(
+        `https://apis.roblox.com/cloud/v2/universes/${universeId}?updateMask=visibility`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ visibility: 'PUBLIC' }),
+          timeoutMs: 120_000,
+          retries: 2,
+          operation: `make universe public ${universeId}`
+        }
+      );
+      console.log(`[SUCCESS] Universe ${universeId} visibility set to PUBLIC via Open Cloud.`);
+      publicDone = true;
+    } catch (err) {
+      console.log(`[WARN] Open Cloud public visibility failed; trying cookie-based activation: ${err.message}`);
+    }
+  }
+
+  if (!publicDone) {
+    try {
+      await client.post(
+        `https://develop.roblox.com/v1/universes/${universeId}/activate`,
+        undefined,
+        {},
+        { timeoutMs: 60_000, retries: 2, baseDelayMs: 1000, maxDelayMs: 10_000, operation: `activate public universe ${universeId}` }
+      );
+      console.log(`[SUCCESS] Universe ${universeId} activated/public via Roblox cookie endpoint.`);
+      publicDone = true;
+    } catch (err) {
+      console.log(`[WARN] Cookie activation failed; trying legacy audience configuration: ${err.message}`);
+      try {
+        await client.patch(
+          `https://develop.roblox.com/v2/universes/${universeId}/configuration`,
+          {
+            name: experience.name,
+            description: experience.description,
+            studioAccessToApisAllowed: false,
+            audiences: [4]
+          },
+          {},
+          { timeoutMs: 60_000, retries: 2, baseDelayMs: 1000, maxDelayMs: 10_000, operation: `publish universe ${universeId}` }
+        );
+        console.log(`[SUCCESS] Universe ${universeId} marked public via legacy audience configuration.`);
+        publicDone = true;
+      } catch (legacyErr) {
+        console.log(`[WARN] Legacy public configuration also failed: ${legacyErr.message}`);
+      }
+    }
+  }
+
+  if (!publicDone) {
+    console.log(`[WARN] Public visibility could not be confirmed for universe ${universeId}. Check Creator Dashboard > Audience/Access and the API key scopes.`);
+  }
+
+  let devicesDone = false;
+  if (openCloudKey) {
+    try {
+      devicesDone = await configureUniverseCloudSettings(universeId, experience, openCloudKey);
+    } catch (err) {
+      console.log(`[WARN] Open Cloud all-devices update failed; using cookie fallback: ${err.message}`);
+    }
+  }
+
+  if (!devicesDone) {
+    try {
+      const requestedDevices = Array.isArray(experience.playableDevices) && experience.playableDevices.length
+        ? experience.playableDevices
+        : ['Computer', 'Phone', 'Tablet', 'Console'];
+      const deviceIdsByName = new Map([
+        ['computer', 1], ['desktop', 1], ['pc', 1],
+        ['phone', 2], ['mobile', 2],
+        ['tablet', 3],
+        ['console', 4], ['xbox', 4], ['playstation', 4],
+        ['vr', 5], ['virtual reality', 5], ['virtualreality', 5],
+      ]);
+      const playableDeviceIds = [...new Set(requestedDevices.map((device) => {
+        const raw = String(device).trim().toLowerCase();
+        if (/^[1-5]$/.test(raw)) return Number(raw);
+        return deviceIdsByName.get(raw);
+      }).filter((id) => Number.isInteger(id)))];
+      if (!playableDeviceIds.length) {
+        throw new Error('experience.playableDevices did not contain a supported device; use Computer, Phone, Tablet, Console, or VR.');
+      }
+      await client.patch(
+        `https://develop.roblox.com/v2/universes/${universeId}/configuration`,
+        { playableDevices: playableDeviceIds },
+        {},
+        { timeoutMs: 60_000, retries: 2, baseDelayMs: 1000, maxDelayMs: 10_000, operation: `configure playable devices ${universeId}` }
+      );
+      console.log(`[SUCCESS] Universe ${universeId}: playable devices configured (${requestedDevices.join(', ')}; IDs ${playableDeviceIds.join(', ')}).`);
+      devicesDone = true;
+    } catch (err) {
+      console.log(`[WARN] Cookie all-devices settings update failed: ${err.message}`);
+    }
+  }
+
+  try {
+    await client.patch(
+      `https://develop.roblox.com/v2/universes/${universeId}/configuration`,
+      {
+        allowPrivateServers: experience.allowPrivateServers !== false,
+        privateServerPrice: Math.max(0, Number(experience.privateServerPrice ?? 0))
+      },
+      {},
+      { timeoutMs: 60_000, retries: 2, operation: `configure free private servers ${universeId}` }
+    );
+    console.log(`[SUCCESS] Universe ${universeId}: private servers ${experience.allowPrivateServers === false ? 'disabled' : 'enabled'}${experience.allowPrivateServers === false ? '' : ` (price ${Math.max(0, Number(experience.privateServerPrice ?? 0))})`}.`);
+  } catch (err) {
+    console.log(`[WARN] Could not configure private servers for universe ${universeId}: ${err.message}`);
+  }
+
+  try {
+    await configureDiscordSocialLink(client, universeId, experience.discordServerUrl || config.discordServerUrl || 'https://discord.gg/N2mfmmNkta');
+  } catch (err) {
+    console.log(`[WARN] Discord social link setup failed for universe ${universeId}: ${err.message}`);
+  }
+
+  return { publicDone, devicesDone };
+}
+
+async function configureDiscordSocialLink(client, universeId, rawUrl) {
+  const url = String(rawUrl || '').trim();
+  if (!url) {
+    console.log('[INFO] Discord social link skipped: experience.discordServerUrl is not configured.');
+    return false;
+  }
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'https:' || !['discord.gg', 'www.discord.gg', 'discord.com', 'www.discord.com'].includes(parsed.hostname.toLowerCase())) {
+    throw new Error('experience.discordServerUrl must be an HTTPS Discord invite URL.');
+  }
+
+  const endpoint = `https://develop.roblox.com/v1/universes/${universeId}/social-links`;
+  const payload = { type: 'Discord', url, title: 'Community Discord Server' };
+  let links = [];
+  try {
+    const response = await client.json(endpoint, { timeoutMs: 30_000, retries: 1, operation: `read Discord social links ${universeId}` });
+    links = Array.isArray(response) ? response : (response?.data || response?.socialLinks || response?.socialLinksData || []);
+  } catch (err) {
+    if (Number(err?.status) !== 404) console.log(`[INFO] Could not list existing social links; attempting to add Discord link: ${err.message}`);
+  }
+
+  const discordLink = Array.isArray(links) ? links.find((link) => String(link?.type || '').toLowerCase() === 'discord') : null;
+  if (discordLink && String(discordLink.url || '') === url) {
+    console.log(`[SUCCESS] Discord social link already set for universe ${universeId}.`);
+    return true;
+  }
+  if (discordLink && (discordLink.id || discordLink.socialLinkId)) {
+    const id = discordLink.id || discordLink.socialLinkId;
+    await client.patch(`${endpoint}/${encodeURIComponent(String(id))}`, payload, {}, { timeoutMs: 30_000, retries: 1, operation: `update Discord social link ${universeId}` });
+    console.log(`[SUCCESS] Discord social link updated for universe ${universeId}.`);
+    return true;
+  }
+  await client.post(endpoint, payload, { 'content-type': 'application/json' }, { timeoutMs: 30_000, retries: 1, operation: `add Discord social link ${universeId}` });
+  console.log(`[SUCCESS] Discord social link added for universe ${universeId}.`);
+  return true;
+}
+
+async function configureGroupUniverseViaOpenCloud(universeId, experience, config) {
+  const apiKey = resolveApiKey(config, 'Main');
+  if (!apiKey) {
+    console.log(`[WARN] Group-owned universe ${universeId}: no Open Cloud key available for universe metadata update; continuing with place publishing.`);
+    return false;
+  }
+
+  const query = new URLSearchParams({
+    updateMask: 'displayName,description,visibility'
+  });
+  const openCloud = new RobloxOpenCloudClient(apiKey, `Roblox group universe ${universeId}`);
+
+  try {
+    await openCloud.request(`https://apis.roblox.com/cloud/v2/universes/${universeId}?${query.toString()}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        displayName: experience.name,
+        description: experience.description,
+        visibility: 'PUBLIC'
+      }),
+      timeoutMs: 120_000,
+      retries: 2,
+      baseDelayMs: 1000,
+      maxDelayMs: 8000,
+      operation: `update group universe ${universeId}`
+    });
+    console.log(`[SUCCESS] Group universe ${universeId} metadata/visibility updated through Open Cloud.`);
+    return true;
+  } catch (err) {
+    console.log(`[WARN] Open Cloud group universe metadata update failed; continuing with the publish pipeline: ${err.message}`);
+    return false;
+  }
+}
+
+export async function configureUniverse(client, universeId, experience, config) {
+  // Treat Roblox's live creator metadata as authoritative. Static config can lag behind
+  // after switching from a user-owned experience to a group-owned experience.
+  let groupMode = isGroupOpenCloudModeEnabled(config);
+  if (!groupMode) {
+    try {
+      const universeDetails = await getUniverseDetails(client, universeId);
+      if (applyDetectedGroupOwnership(config, universeDetails)) {
+        groupMode = true;
+        console.log(
+          `[INFO] Live Roblox metadata confirms universe ${universeId} is group-owned ` +
+            `(groupId ${universeDetails?.creator?.id ?? 'unknown'}); forcing group Open Cloud mode.`
+        );
+      }
+    } catch (err) {
+      console.log(`[WARN] Could not confirm live group ownership for universe ${universeId}: ${err.message}`);
+    }
+  }
+
+  // Group-owned experiences are handled through the stable Open Cloud Universe API.
+  // The legacy develop PATCH can return HTTP 500 for otherwise valid group-owner
+  // credentials, so never let that legacy endpoint block RBXL publishing.
+  if (groupMode) {
+    try {
+      await configureGroupUniverseViaOpenCloud(universeId, experience, config);
+    } catch (err) {
+      console.log(`[WARN] Group Open Cloud universe metadata update failed; continuing with publishing: ${err.message}`);
+    }
     return;
+  }
+
+  // User-owned compatibility path: keep the existing cookie-based configuration
+  // behavior intact because the manual uploader relies on it.
+  const universeConfiguration = {
+    name: experience.name,
+    description: experience.description,
+    universeAvatarType: 'PlayerChoice',
+    universeAnimationType: 'PlayerChoice',
+    allowPrivateServers: experience.allowPrivateServers !== false,
+    privateServerPrice: Math.max(0, Number(experience.privateServerPrice ?? 0)),
+    isArchived: false,
+    permissions: {
+      IsThirdPartyTeleportAllowed: true,
+      IsThirdPartyAssetAllowed: true,
+      IsThirdPartyPurchaseAllowed: true,
+      IsClientTeleportAllowed: true
+    }
+  };
+
+  try {
+    await client.patch(`https://develop.roblox.com/v2/universes/${universeId}/configuration`, universeConfiguration);
+  } catch (err) {
+    if (isRobloxUnauthorized(err)) {
+      console.log(`[WARN] Creator account is not authorized to configure universe ${universeId}; skipping universe configuration.`);
+      return;
+    }
+
+    if (Number(err?.status) >= 500 && Number(err?.status) < 600) {
+      console.log(
+        `[WARN] Roblox returned HTTP ${err.status} for the full universe configuration; ` +
+        `retrying with the minimal name/description payload.`
+      );
+      await client.patch(`https://develop.roblox.com/v2/universes/${universeId}/configuration`, {
+        name: experience.name,
+        description: experience.description
+      }, {}, { retries: 2, baseDelayMs: 1500, maxDelayMs: 8000 });
+    } else {
+      throw err;
+    }
   }
 
   try {
@@ -1393,9 +1917,11 @@ async function configureUniverse(client, universeId, experience, config) {
       isHttpEnabled: true,
       isStudioAccessToApisAllowed: true,
       allowThirdPartySales: true,
-      playableDevices: ['Computer', 'Phone', 'Tablet', 'Console']
+      playableDevices: Array.isArray(experience.playableDevices) && experience.playableDevices.length
+        ? experience.playableDevices
+        : ['Computer', 'Phone', 'Tablet', 'Console']
     });
-    console.log(`[SUCCESS] Enabled Console as a playable device for universe ${universeId}`);
+    console.log(`[SUCCESS] Enabled configured playable devices for universe ${universeId}: ${(experience.playableDevices || ['Computer', 'Phone', 'Tablet', 'Console']).join(', ')}`);
   } catch (err) {
     if (!isRobloxNotFound(err)) {
       throw err;
@@ -1887,10 +2413,219 @@ async function uploadExperienceThumbnail(client, universeId, mainPlaceId, experi
   return false;
 }
 
-async function uploadPlaceFile(universeId, placeId, rbxlPath, apiKey, config = null) {
-  requireValue(apiKey, 'Open Cloud API key for place publishing');
+const openCloudKeyIntrospectionCache = new Map();
 
-  let data = readBinaryFile(rbxlPath);
+function fingerprintOpenCloudKey(apiKey) {
+  return createHash('sha256').update(String(apiKey || '').trim()).digest('hex').slice(0, 12);
+}
+
+function normalizeIntrospectionScopeName(scope) {
+  return String(scope?.name || '').trim().toLowerCase().replace(/:write$/, '');
+}
+
+function introspectionScopeHasWrite(scope) {
+  const operations = Array.isArray(scope?.operations)
+    ? scope.operations.map((operation) => String(operation).toLowerCase())
+    : [];
+  return operations.includes('write') || /:write$/i.test(String(scope?.name || ''));
+}
+
+function introspectionScopeUniverseIds(scope) {
+  if (Array.isArray(scope?.universeIds)) return scope.universeIds.map(String);
+  if (Array.isArray(scope?.universes)) {
+    return scope.universes.map((item) => String(item?.universeId ?? item?.id ?? item));
+  }
+  if (Array.isArray(scope?.resources)) return scope.resources.map(String);
+  return null;
+}
+
+async function diagnoseOpenCloudPublishKey(apiKey, universeId, placeId, config, placeKey, source) {
+  const normalizedKey = String(apiKey || '').trim();
+  if (!normalizedKey) return null;
+
+  const fingerprint = fingerprintOpenCloudKey(normalizedKey);
+  const cacheKey = `${fingerprint}:${String(universeId)}`;
+  if (openCloudKeyIntrospectionCache.has(cacheKey)) {
+    return openCloudKeyIntrospectionCache.get(cacheKey);
+  }
+
+  const diagnosticPromise = (async () => {
+    try {
+      // Roblox's introspection endpoint reports permissions for the exact key being sent.
+      // Never log the API key, request body, or any part of the secret.
+      const info = await requestJson(
+        'https://apis.roblox.com/api-keys/v1/introspect',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({ apiKey: normalizedKey }),
+        },
+        { retries: 0, timeoutMs: 15000, operation: 'Roblox Open Cloud API key introspection' }
+      );
+
+      const scopes = Array.isArray(info?.scopes) ? info.scopes : [];
+      const placeWriteScopes = scopes.filter((scope) =>
+        normalizeIntrospectionScopeName(scope) === 'universe-places' && introspectionScopeHasWrite(scope)
+      );
+      const universeWriteScopes = scopes.filter((scope) =>
+        normalizeIntrospectionScopeName(scope) === 'universe' && introspectionScopeHasWrite(scope)
+      );
+      const targetId = String(universeId);
+      const targetStatus = (matchingScopes) => {
+        if (!matchingScopes.length) return false;
+        let anyTargetReported = false;
+        for (const scope of matchingScopes) {
+          const ids = introspectionScopeUniverseIds(scope);
+          if (!ids || ids.length === 0) continue;
+          anyTargetReported = true;
+          if (ids.includes('*') || ids.includes(targetId)) return true;
+        }
+        return anyTargetReported ? false : null;
+      };
+      const summaryScopes = scopes.map((scope) => ({
+        name: String(scope?.name || ''),
+        operations: Array.isArray(scope?.operations) ? scope.operations.map(String) : [],
+        universeIds: introspectionScopeUniverseIds(scope),
+        groupIds: Array.isArray(scope?.groupIds) ? scope.groupIds.map(String) : undefined,
+      }));
+      const enabled = info?.enabled ?? info?.isEnabled ?? null;
+      const expired = info?.expired ?? info?.isExpired ?? null;
+      const result = {
+        available: true,
+        fingerprint,
+        hasUniversePlacesWrite: placeWriteScopes.length > 0,
+        universePlacesTargetAllowed: targetStatus(placeWriteScopes),
+        hasUniverseWrite: universeWriteScopes.length > 0,
+        universeTargetAllowed: targetStatus(universeWriteScopes),
+        enabled,
+        expired,
+        keyName: String(info?.name || ''),
+      };
+
+      console.log('[INFO] Open Cloud API key introspection (secret omitted): ' + JSON.stringify({
+        source,
+        fingerprint,
+        keyName: result.keyName || undefined,
+        enabled,
+        expired,
+        expirationTimeUtc: info?.expirationTimeUtc || info?.expirationUtcTime || undefined,
+        authorizedUserId: info?.authorizedUserId || undefined,
+        targetUniverseId: targetId,
+        targetPlaceId: String(placeId),
+        hasUniversePlacesWrite: result.hasUniversePlacesWrite,
+        universePlacesTargetAllowed: result.universePlacesTargetAllowed,
+        hasUniverseWrite: result.hasUniverseWrite,
+        universeTargetAllowed: result.universeTargetAllowed,
+        scopes: summaryScopes,
+      }));
+      return result;
+    } catch (error) {
+      const result = { available: false, fingerprint };
+      console.log('[WARN] Could not introspect the actual Open Cloud key (secret omitted): ' + JSON.stringify({
+        source,
+        fingerprint,
+        targetUniverseId: String(universeId),
+        status: error?.status || null,
+        error: String(error?.message || error).slice(0, 240),
+      }));
+      return result;
+    }
+  })();
+
+  openCloudKeyIntrospectionCache.set(cacheKey, diagnosticPromise);
+  return diagnosticPromise;
+}
+
+function describeUserOpenCloudKeySource(config, placeKey) {
+  const placeConfig = config.experience?.places?.[placeKey];
+  if (placeConfig?.apiKey && trimConfigSecret(placeConfig.apiKey)) {
+    return `experience.places.${placeKey}.apiKey`;
+  }
+  if (config.accountPool?.primary?.apiKey && trimConfigSecret(config.accountPool.primary.apiKey)) {
+    return 'accountPool.primary.apiKey';
+  }
+  if (config.creatorAccount?.apiKey && trimConfigSecret(config.creatorAccount.apiKey)) {
+    return 'creatorAccount.apiKey';
+  }
+  return 'no alternate user apiKey configured';
+}
+
+function canPublishToTargetFromIntrospection(info) {
+  if (!info?.available) return null;
+  if (info.enabled === false || info.expired === true) return false;
+  if (!info.hasUniversePlacesWrite) return false;
+  if (info.universePlacesTargetAllowed === false) return false;
+  return true;
+}
+
+async function selectOpenCloudPublishCredential(config, universeId, placeId, placeKey) {
+  const preferredKey = resolveApiKey(config, placeKey);
+  const preferredSource = describeOpenCloudKeySource(config, placeKey);
+  const alternateKey = resolveUserOpenCloudApiKey(config, placeKey);
+  const alternateSource = describeUserOpenCloudKeySource(config, placeKey);
+
+  if (!preferredKey) return { apiKey: '', source: 'none' };
+  if (!alternateKey || trimConfigSecret(alternateKey) === trimConfigSecret(preferredKey)) {
+    return { apiKey: preferredKey, source: preferredSource };
+  }
+
+  const [preferredInfo, alternateInfo] = await Promise.all([
+    diagnoseOpenCloudPublishKey(preferredKey, universeId, placeId, config, placeKey, preferredSource),
+    diagnoseOpenCloudPublishKey(alternateKey, universeId, placeId, config, placeKey, alternateSource),
+  ]);
+  const preferredStatus = canPublishToTargetFromIntrospection(preferredInfo);
+  const alternateStatus = canPublishToTargetFromIntrospection(alternateInfo);
+
+  if (preferredStatus === false && alternateStatus === true) {
+    console.log(`[INFO] Selecting ${alternateSource} for ${placeKey} because the configured group key is not authorized for universe ${universeId}.`);
+    return { apiKey: alternateKey, source: alternateSource };
+  }
+  return { apiKey: preferredKey, source: preferredSource };
+}
+
+async function selectUniverseWriteCredential(config, universeId, placeId, placeKey = 'Main') {
+  const candidates = [
+    { apiKey: resolveApiKey(config, placeKey), source: describeOpenCloudKeySource(config, placeKey) },
+    { apiKey: resolveUserOpenCloudApiKey(config, placeKey), source: describeUserOpenCloudKeySource(config, placeKey) },
+  ].filter((candidate, index, all) => candidate.apiKey && all.findIndex((other) => trimConfigSecret(other.apiKey) === trimConfigSecret(candidate.apiKey)) === index);
+
+  let anyDiagnosticAvailable = false;
+  for (const candidate of candidates) {
+    const info = await diagnoseOpenCloudPublishKey(candidate.apiKey, universeId, placeId, config, placeKey, candidate.source);
+    if (info?.available) anyDiagnosticAvailable = true;
+    if (
+      info?.available && info.hasUniverseWrite && info.universeTargetAllowed !== false &&
+      info.enabled !== false && info.expired !== true
+    ) {
+      return candidate;
+    }
+  }
+
+  if (anyDiagnosticAvailable) {
+    console.log(`[INFO] None of the configured Open Cloud keys has Universe → Write for universe ${universeId}; using the Creator Dashboard cookie endpoint for visibility and device settings.`);
+    return null;
+  }
+
+  // If introspection itself is unavailable, keep the existing behavior and let Roblox decide.
+  return candidates[0] || null;
+}
+
+async function uploadPlaceFile(universeId, placeId, rbxlSource, apiKey, config = null, placeKey = 'Main', keySource = null) {
+  requireValue(apiKey, 'Open Cloud API key for place publishing');
+  await diagnoseOpenCloudPublishKey(
+    apiKey,
+    universeId,
+    placeId,
+    config,
+    placeKey,
+    keySource || (config ? describeOpenCloudKeySource(config, placeKey) : 'unknown source')
+  );
+
+  // Accept a pre-read Buffer so every target can publish the exact same source bytes.
+  // The orchestrator reads each configured RBXL once before starting uploads.
+  let data = Buffer.isBuffer(rbxlSource) || rbxlSource instanceof Uint8Array
+    ? Buffer.from(rbxlSource)
+    : readBinaryFile(rbxlSource);
   if (shouldPatchRbxlUploadStamp(config)) {
     const stampConfig = config?.experience?.uploadStamp;
     data = patchRbxlUploadStamp(data, {
@@ -1903,42 +2638,33 @@ async function uploadPlaceFile(universeId, placeId, rbxlPath, apiKey, config = n
   let lastBody = '';
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'x-api-key': apiKey,
-        'content-type': 'application/octet-stream'
-      },
-      body: data
-    });
-
-    if (response.ok) {
-      return response.json();
+    const openCloud = new RobloxOpenCloudClient(apiKey, `Roblox place publisher ${placeId}`, { retries: 0 });
+    try {
+      const response = await openCloud.request(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: data,
+        timeoutMs: 30 * 60_000,
+        retries: 0,
+        operation: `publish place ${placeId}`
+      });
+      const text = await response.text();
+      if (!text.trim()) return { ok: true };
+      try { return JSON.parse(text); } catch { return { ok: true, response: text.slice(0, 200) }; }
+    } catch (error) {
+      lastStatus = Number(error?.status || 0);
+      lastBody = String(error?.message || '');
+      if (attempt < maxAttempts && isOpenCloudPlacePublishRetryable(lastStatus, lastBody)) {
+        const delayMs = openCloudPlacePublishBackoffMs(attempt - 1);
+        console.log(`[INFO] Open Cloud place publish busy or transient (${lastStatus}) for place ${placeId}; retry ${attempt + 1}/${maxAttempts} after ${Math.round(delayMs / 1000)}s…`);
+        await sleep(delayMs);
+        continue;
+      }
+      if (isOpenCloudInsufficientScopes(lastStatus, lastBody)) {
+        throw new Error(`Open Cloud place publish failed for place ${placeId}: API key is missing the **Universe Places → Write** scope (401 insufficient scopes). ${config ? openCloudPlacePublishScopeSetupHint(config) : 'Add Universe Places → Write on your Creator Dashboard API key.'}`);
+      }
+      throw error;
     }
-
-    lastStatus = response.status;
-    lastBody = await response.text();
-
-    if (attempt < maxAttempts && isOpenCloudPlacePublishRetryable(lastStatus, lastBody)) {
-      const delayMs = openCloudPlacePublishBackoffMs(attempt - 1);
-      console.log(
-        `[INFO] Open Cloud place publish busy or transient (${lastStatus}) for place ${placeId}; ` +
-          `retry ${attempt + 1}/${maxAttempts} after ${Math.round(delayMs / 1000)}s…`
-      );
-      await sleep(delayMs);
-      continue;
-    }
-
-    if (isOpenCloudInsufficientScopes(lastStatus, lastBody)) {
-      throw new Error(
-        `Open Cloud place publish failed for place ${placeId}: API key is missing the **Universe Places → Write** scope ` +
-          `(401 insufficient scopes). ${config ? openCloudPlacePublishScopeSetupHint(config) : 'Add Universe Places → Write on your Creator Dashboard API key.'} ` +
-          `Roblox response: ${lastBody}`
-      );
-    }
-
-    throw new Error(`Open Cloud place publish failed for place ${placeId}: ${lastStatus} ${response.statusText} ${lastBody}`);
   }
 
   throw new Error(`Open Cloud place publish failed for place ${placeId}: ${lastStatus} ${lastBody}`);
@@ -2287,15 +3013,8 @@ function buildRobloxGameShareUrl(mainPlaceId, experienceName = '') {
 }
 
 async function discordBotApiRequest(botToken, endpointPath, options = {}) {
-  const response = await fetch(`https://discord.com/api/v10${endpointPath}`, {
-    ...options,
-    headers: {
-      authorization: `Bot ${botToken}`,
-      ...(options.headers || {})
-    }
-  });
-
-  return response;
+  const client = new DiscordClient(botToken);
+  return client.request(endpointPath, options);
 }
 
 class DiscordRateLimitError extends Error {
@@ -2335,6 +3054,30 @@ async function discordBotApiRequestWithRateLimitRetry(botToken, endpointPath, op
 
   throw new DiscordRateLimitError(`Discord API rate limited: ${bodyText}`, retryAfterMs);
 }
+
+/**
+ * Discord updates are cosmetic. They must never keep an upload (and its operation lock) waiting,
+ * so pipelines call them through this wrapper: bounded wait, errors swallowed.
+ */
+async function boundedDiscord(label, task, timeoutMs = 20_000) {
+  let timer;
+  try {
+    await Promise.race([
+      Promise.resolve().then(task),
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          console.log(`[WARN] Discord ${label} still pending after ${Math.round(timeoutMs / 1000)}s; continuing without waiting.`);
+          resolve();
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (err) {
+    console.log(`[WARN] Discord ${label} failed: ${err?.message || err}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+const setSystemStatusBounded = (...args) => boundedDiscord('status message', () => setSystemStatus(...args));
 
 function spawnDiscordTask(label, task) {
   // Fire-and-forget: each Discord action runs independently.
@@ -2399,12 +3142,11 @@ function isDiscordTransientServiceError(error) {
 
 async function fetchUniversePlayerCount(universeId) {
   const id = normalizeUserId(universeId, 'experienceId');
-  const response = await fetch(`https://games.roblox.com/v1/games?universeIds=${encodeURIComponent(id)}`);
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Roblox games API failed: ${response.status} ${response.statusText} ${body}`);
-  }
-  const payload = await response.json();
+  const payload = await requestJson(
+    `https://games.roblox.com/v1/games?universeIds=${encodeURIComponent(id)}`,
+    { headers: ROBLOX_PUBLIC_FETCH_HEADERS },
+    { operation: 'Roblox live player count', retries: 4, timeoutMs: 15_000, baseMs: 1000, maxMs: 30_000 }
+  );
   const playing = payload?.data?.[0]?.playing;
   return Number.isFinite(Number(playing)) ? Number(playing) : 0;
 }
@@ -2526,10 +3268,10 @@ async function updateDiscordStatusChannel(config, status) {
   }
 
   const targetName = status === 'down'
-    ? '❌・DOWN'
+    ? '🔴・DOWN'
     : status === 'reuploading'
       ? '🟡・REUPLOADING'
-      : '✅・UP';
+      : '🟢・UP';
 
   const seq = beginDiscordChannelUpdate(statusChannelId);
   try {
@@ -2682,17 +3424,18 @@ function updateDiscordLastGameLinkMessageIdInConfigFile(configPath, messageId) {
   }
   data.monitor.discordLastGameLinkMessageId = messageId ? String(messageId) : '';
   normalizeAccountPoolKeyOrder(data);
-  fs.writeFileSync(resolvedPath, `${stringifyConfigWithInlineAssetArrays(data)}\n`);
+  atomicWriteFile(resolvedPath, `${stringifyConfigWithInlineAssetArrays(data)}\n`, { backup: true });
 }
 
 async function updateDiscordVoiceChannelsAtUploadStart(config) {
+  // Status channel is owned by discordStatusManager.setSystemStatus(), which uses
+  // the fixed production channel ID. Only update the player-count channel here.
   await updateDiscordVoiceChannelPlayerCount(config, 0);
-  await updateDiscordStatusChannel(config, 'reuploading');
 }
 
 async function updateDiscordVoiceChannelsOnUploadFailure(config) {
+  // Status channel is owned by discordStatusManager.setSystemStatus().
   await updateDiscordVoiceChannelPlayerCount(config, 0);
-  await updateDiscordStatusChannel(config, 'down');
 }
 
 async function updateDiscordVoiceChannelsAfterSuccessfulUpload(config) {
@@ -2710,7 +3453,6 @@ async function updateDiscordVoiceChannelsAfterSuccessfulUpload(config) {
     console.log('[WARN] Missing experienceId; cannot fetch live player count for Discord.');
   }
   await updateDiscordVoiceChannelPlayerCount(config, livePlayers);
-  await updateDiscordStatusChannel(config, 'up');
 }
 
 async function postGameLinkToDiscordBot(config, mainPlaceId, { configPath } = {}) {
@@ -2851,9 +3593,58 @@ export function updateMonitorHealthUrlInConfigFile(configPath, mainPlaceId) {
   data.monitor.healthUrl = buildRobloxGameHealthUrl(mainPlaceId);
   normalizeAccountPoolKeyOrder(data);
   normalizeMonitorKeyOrder(data);
-  fs.writeFileSync(resolvedPath, `${stringifyConfigWithInlineAssetArrays(data)}\n`);
+  atomicWriteFile(resolvedPath, `${stringifyConfigWithInlineAssetArrays(data)}\n`, { backup: true });
   console.log(`[SUCCESS] Updated monitor.healthUrl in ${resolvedPath}`);
   console.log(`[INFO] ${data.monitor.healthUrl}`);
+}
+
+/**
+ * Group members with "edit" rights get canCloudEdit=true but canManage=false from Roblox, so
+ * requiring canManage alone rejects valid group accounts. Accept either flag, and if the
+ * permissions endpoint is silent, fall back to probing an endpoint that needs edit access.
+ */
+export async function assertCanEditUniverse(client, universeId, config = {}) {
+  let permissions = null;
+  let permissionsError = '';
+  try {
+    permissions = await getUniversePermissions(client, universeId);
+  } catch (err) {
+    permissionsError = err?.message || String(err);
+  }
+  console.log(`[INFO] Universe ${universeId} permissions for creator account: ${JSON.stringify(permissions ?? null)}${permissionsError ? ` (lookup error: ${permissionsError})` : ''}`);
+  if (permissions?.canManage || permissions?.canCloudEdit) {
+    return permissions;
+  }
+
+  try {
+    const places = await getUniversePlaces(client, universeId);
+    if (Array.isArray(places?.data) && places.data.length > 0) {
+      console.log('[WARN] Permissions endpoint did not report edit access, but the account can list this universe\'s places; continuing.');
+      return permissions;
+    }
+  } catch (err) {
+    permissionsError = permissionsError || err?.message || String(err);
+  }
+
+  const groupMode = isGroupOpenCloudModeEnabled(config);
+  const groupId = resolveExperienceGroupId(config);
+  const groupApiKey = resolveGroupOpenCloudApiKey(config, 'Main');
+  const groupOwnerCookie = resolveGroupOwnerCookie(config);
+  if (groupMode && groupId && (groupApiKey || groupOwnerCookie)) {
+    console.log(
+      `[INFO] Roblox permissions endpoint returned ${JSON.stringify(permissions ?? null)} for group-owned universe ${universeId}; ` +
+        `continuing with group credentials (groupId=${groupId}, groupApiKey=${groupApiKey ? 'configured' : 'not configured'}, ` +
+        `groupOwnerCookie=${groupOwnerCookie ? 'configured' : 'not configured'}). ` +
+        'The actual group-owner/group-role permissions will be enforced by the subsequent Roblox write operations.'
+    );
+    return permissions;
+  }
+
+  throw new Error(
+    `Configured creator account cannot edit universe ${universeId} (permissions: ${JSON.stringify(permissions ?? null)}${permissionsError ? `; ${permissionsError}` : ''}). ` +
+    'Check that the cookie belongs to the account that has edit/manage rights on this universe, that experienceId is the universe ID (not a place ID), and that the cookie has not expired. ' +
+    'For group games the member needs a role with edit access to the group experiences.'
+  );
 }
 
 async function resolveExperiencePlaceIds(client, config) {
@@ -2862,13 +3653,20 @@ async function resolveExperiencePlaceIds(client, config) {
   requireValue(experience?.name, 'experience.name');
   requireValue(experience?.description, 'experience.description');
   requireValue(experience?.rbxlPath, 'experience.rbxlPath');
-  const universePermissions = await getUniversePermissions(client, universeId);
-  if (!universePermissions?.canManage) {
-    throw new Error(
-      `Configured creator account cannot manage universe ${universeId}. ` +
-      'Use the universe owner account cookie, or for group-owned games use a member cookie with Manage experience permission on the group.'
-    );
+
+  const universeDetails = await getUniverseDetails(client, universeId);
+  if (universeDetails) {
+    const detectedGroup = applyDetectedGroupOwnership(config, universeDetails);
+    if (detectedGroup) {
+      const detectedGroupId = universeDetails?.creator?.id;
+      console.log(
+        `[INFO] Roblox reports universe ${universeId} is group-owned ` +
+          `(groupId ${detectedGroupId ?? 'unknown'}); using group credential mode.`
+      );
+    }
   }
+
+  await assertCanEditUniverse(client, universeId, config);
 
   if (isGroupOpenCloudModeEnabled(config)) {
     const gid = resolveExperienceGroupId(config);
@@ -2917,9 +3715,63 @@ async function resolveExperiencePlaceIds(client, config) {
   return { universeId, placeIds, experience };
 }
 
-async function uploadExperienceRbxlPlaces(universeId, placeIds, config, experience) {
+function resolveConfiguredRbxlPath(rawPath, configPath = '', placeKey = 'Main') {
+  const configured = String(rawPath || '').trim();
+  if (!configured) {
+    throw new Error(`No RBXL source path configured for ${placeKey}. Set experience.rbxlPath or experience.rbxlPaths.`);
+  }
+
+  const candidates = [];
+  if (path.isAbsolute(configured)) {
+    candidates.push(path.resolve(configured));
+  } else {
+    // On Railway the live config commonly lives in /data/config.json. Prefer a file
+    // next to that config (persistent storage) before falling back to the app bundle.
+    if (configPath) candidates.push(path.resolve(path.dirname(path.resolve(configPath)), configured));
+    if (process.env.DATA_DIR) candidates.push(path.resolve(process.env.DATA_DIR, configured));
+    candidates.push(path.resolve(configured));
+  }
+
+  const uniqueCandidates = [...new Set(candidates)];
+  const existing = uniqueCandidates.find((candidate) => {
+    try { return fs.statSync(candidate).isFile(); } catch { return false; }
+  });
+
+  if (!existing) {
+    throw new Error(
+      `RBXL source for ${placeKey} was not found. Configured path: "${configured}". Checked: ${uniqueCandidates.join(' | ')}. ` +
+      'Upload the NEW .rbxl file to Railway storage and set experience.rbxlPath (or experience.rbxlPaths) to that exact path.'
+    );
+  }
+
+  const stat = fs.statSync(existing);
+  if (stat.size <= 0) throw new Error(`RBXL source for ${placeKey} is empty: ${existing}`);
+  return existing;
+}
+
+async function uploadExperienceRbxlPlaces(universeId, placeIds, config, experience, { configPath = '' } = {}) {
   let rbxlSkipKeyLogged = false;
   const uploadedPlaceIds = new Set();
+
+  // Freeze the chosen source bytes before any place is uploaded. This prevents a
+  // file replacement during the pipeline from making Main/Battle/Trade diverge.
+  const sourceByPlace = new Map();
+  const sharedBufferByPath = new Map();
+  for (const key of PLACE_KEYS) {
+    const placeOverride = experience?.rbxlPaths && typeof experience.rbxlPaths === 'object'
+      ? experience.rbxlPaths[key]
+      : null;
+    const configuredSource = placeOverride || experience?.rbxlPath;
+    const sourcePath = resolveConfiguredRbxlPath(configuredSource, configPath, key);
+    let sourceBuffer = sharedBufferByPath.get(sourcePath);
+    if (!sourceBuffer) {
+      sourceBuffer = fs.readFileSync(sourcePath);
+      sharedBufferByPath.set(sourcePath, sourceBuffer);
+    }
+    const sha256 = createHash('sha256').update(sourceBuffer).digest('hex');
+    sourceByPlace.set(key, { path: sourcePath, buffer: sourceBuffer, bytes: sourceBuffer.length, sha256 });
+    console.log(`[INFO] RBXL source selected for ${key}: path="${sourcePath}" bytes=${sourceBuffer.length} sha256=${sha256}`);
+  }
   const groupMode = isGroupOpenCloudModeEnabled(config);
   const keySource = describeOpenCloudKeySource(config, 'Main');
   if (keySource !== 'none') {
@@ -2937,7 +3789,8 @@ async function uploadExperienceRbxlPlaces(universeId, placeIds, config, experien
       continue;
     }
 
-    const apiKey = resolveApiKey(config, key);
+    const selectedCredential = await selectOpenCloudPublishCredential(config, universeId, placeIds[key], key);
+    const apiKey = selectedCredential.apiKey;
     if (!apiKey) {
       if (!rbxlSkipKeyLogged) {
         rbxlSkipKeyLogged = true;
@@ -2952,10 +3805,55 @@ async function uploadExperienceRbxlPlaces(universeId, placeIds, config, experien
     }
 
     try {
-      await uploadPlaceFile(universeId, placeIds[key], path.resolve(experience.rbxlPath), apiKey, config);
+      const source = sourceByPlace.get(key);
+      await uploadPlaceFile(
+        universeId,
+        placeIds[key],
+        source.buffer,
+        apiKey,
+        config,
+        key,
+        selectedCredential.source
+      );
       uploadedPlaceIds.add(targetPlaceId);
-      console.log(`[SUCCESS] Uploaded RBXL to ${key} place ${placeIds[key]}`);
+      console.log(`[SUCCESS] Uploaded RBXL to ${key} place ${placeIds[key]} (${selectedCredential.source}); sourceSha256=${sourceByPlace.get(key).sha256}`);
     } catch (err) {
+      // If the preferred group key is wrong/stale, try a distinct user API key that is
+      // already configured. A working personal key can publish to group experiences
+      // when its own scope and the account's group permissions allow it.
+      const alternateApiKey = resolveUserOpenCloudApiKey(config, key);
+      const canTryAlternate = isOpenCloudInsufficientScopesError(err)
+        && alternateApiKey
+        && trimConfigSecret(alternateApiKey) !== trimConfigSecret(apiKey);
+      if (canTryAlternate) {
+        const alternateSource = describeUserOpenCloudKeySource(config, key);
+        console.log('[WARN] Preferred Open Cloud key was rejected for place publishing; trying the distinct configured alternate key (' + alternateSource + ').');
+        try {
+          const source = sourceByPlace.get(key);
+          await uploadPlaceFile(
+            universeId,
+            placeIds[key],
+            source.buffer,
+            alternateApiKey,
+            config,
+            key,
+            alternateSource
+          );
+          uploadedPlaceIds.add(targetPlaceId);
+          console.log(`[SUCCESS] Uploaded RBXL to ${key} place ${placeIds[key]} using alternate Open Cloud key (${alternateSource}); sourceSha256=${sourceByPlace.get(key).sha256}`);
+          continue;
+        } catch (alternateErr) {
+          if (isOpenCloudInsufficientScopesError(alternateErr)) {
+            throw new Error(
+              `Both configured Open Cloud keys were rejected for place ${placeIds[key]}. ` +
+              `Preferred source ${describeOpenCloudKeySource(config, key)} failed: ${err.message} ` +
+              `Alternate source ${alternateSource} failed: ${alternateErr.message}`
+            );
+          }
+          throw alternateErr;
+        }
+      }
+
       if (isMissingOpenCloudApiKey(err)) {
         if (!rbxlSkipKeyLogged) {
           rbxlSkipKeyLogged = true;
@@ -3011,13 +3909,16 @@ async function configureUniverseAndPlacesOnly(client, config) {
 
   await configureExperiencePlaceAccessControl(config, universeId);
 
+  await runExperienceQuestionnaire(client, universeId, config);
+  await ensureUniversePublicAndDevices(client, universeId, experience, config, placeIds.Main);
+
   return { universeId, placeIds, experience };
 }
 
 async function configureExistingExperience(client, config, { configPath = '' } = {}) {
   const { universeId, placeIds, experience } = await configureUniverseAndPlacesOnly(client, config);
 
-  await uploadExperienceRbxlPlaces(universeId, placeIds, config, experience);
+  await uploadExperienceRbxlPlaces(universeId, placeIds, config, experience, { configPath });
 
   await configureMedia(
     client,
@@ -3094,20 +3995,30 @@ export async function runNormalUploadPipeline(config, { configPath } = {}) {
   await getAuthenticatedUser(creatorClient);
 
   console.log('[INFO] Normal upload: configuring and publishing without friends/grants...');
-  await updateDiscordVoiceChannelsAtUploadStart(config);
+  await setSystemStatusBounded(SYSTEM_STATUS.REUPLOADING, {
+    gameLink: config.monitor?.healthUrl || '',
+    operation: 'normalupload',
+    target: config.experience?.name || config.experienceId || 'current experience'
+  }, config);
+  await boundedDiscord('updateDiscordVoiceChannelsAtUploadStart', () => updateDiscordVoiceChannelsAtUploadStart(config));
   let placeIds;
   try {
     ({ placeIds } = await configureExistingExperience(creatorClient, config, { configPath }));
   } catch (err) {
-    await updateDiscordVoiceChannelsOnUploadFailure(config);
+    await boundedDiscord('updateDiscordVoiceChannelsOnUploadFailure', () => updateDiscordVoiceChannelsOnUploadFailure(config));
+    await setSystemStatusBounded(SYSTEM_STATUS.DOWN, { gameLink: config.monitor?.healthUrl || '', operation: 'normalupload', reason: err.message, forceAnnouncement: true }, config);
     throw err;
   }
 
   if (configPath) {
     const mainPlaceId = requireValue(placeIds?.Main, 'Main place id after normal upload');
     updateMonitorHealthUrlInConfigFile(configPath, mainPlaceId);
-    await postGameLinkToDiscordBot(config, mainPlaceId, { configPath });
-    await updateDiscordVoiceChannelsAfterSuccessfulUpload(config);
+    await boundedDiscord('updateDiscordVoiceChannelsAfterSuccessfulUpload', () => updateDiscordVoiceChannelsAfterSuccessfulUpload(config));
+    await setSystemStatusBounded(SYSTEM_STATUS.UP, {
+      gameLink: buildRobloxGameShareUrl(mainPlaceId, config.experience?.name),
+      target: config.experience?.name || mainPlaceId,
+      forceAnnouncement: true
+    }, config);
   }
 
   console.log('[INFO] Normal upload pipeline finished.');
@@ -3221,20 +4132,30 @@ export async function runFullUploadPipeline(config, { configPath } = {}) {
   }
 
   console.log('[INFO] Starting experience configure / publish step...');
-  await updateDiscordVoiceChannelsAtUploadStart(config);
+  await setSystemStatusBounded(SYSTEM_STATUS.REUPLOADING, {
+    gameLink: config.monitor?.healthUrl || '',
+    operation: 'fullupload',
+    target: config.experience?.name || config.experienceId || 'current experience'
+  }, config);
+  await boundedDiscord('updateDiscordVoiceChannelsAtUploadStart', () => updateDiscordVoiceChannelsAtUploadStart(config));
   let placeIds;
   try {
     ({ placeIds } = await configureExistingExperience(creatorClient, config, { configPath }));
   } catch (err) {
-    await updateDiscordVoiceChannelsOnUploadFailure(config);
+    await boundedDiscord('updateDiscordVoiceChannelsOnUploadFailure', () => updateDiscordVoiceChannelsOnUploadFailure(config));
+    await setSystemStatusBounded(SYSTEM_STATUS.DOWN, { gameLink: config.monitor?.healthUrl || '', operation: 'fullupload', reason: err.message, forceAnnouncement: true }, config);
     throw err;
   }
 
   if (configPath) {
     const mainPlaceId = requireValue(placeIds?.Main, 'Main place id after upload');
     updateMonitorHealthUrlInConfigFile(configPath, mainPlaceId);
-    await postGameLinkToDiscordBot(config, mainPlaceId, { configPath });
-    await updateDiscordVoiceChannelsAfterSuccessfulUpload(config);
+    await boundedDiscord('updateDiscordVoiceChannelsAfterSuccessfulUpload', () => updateDiscordVoiceChannelsAfterSuccessfulUpload(config));
+    await setSystemStatusBounded(SYSTEM_STATUS.UP, {
+      gameLink: buildRobloxGameShareUrl(mainPlaceId, config.experience?.name),
+      target: config.experience?.name || mainPlaceId,
+      forceAnnouncement: true
+    }, config);
   }
 
   console.log('[INFO] Full upload pipeline finished.');
@@ -3421,10 +4342,17 @@ export async function runMonitorService(configPath) {
           '[WARN] Skipping repair upload: last attempt hit Roblox moderation (403) with no remaining backup accounts. ' +
             'Update accountPool.primary cookie, add accountPool.backups, or wait until health checks pass again.'
         );
-        spawnDiscordTask('monitor voice/status down (upload suspended)', async () => {
+        spawnDiscordTask('monitor status down (upload suspended)', async () => {
           await updateDiscordVoiceChannelPlayerCount(config, 0);
-          await updateDiscordStatusChannel(config, 'down');
+          await setSystemStatusBounded(SYSTEM_STATUS.DOWN, {
+            gameLink: config.monitor?.healthUrl || '',
+            operation: 'monitor',
+            reason: 'repair upload suspended'
+          }, config);
         });
+      } else if (getOperationLockHolder(process.env.DATA_DIR || path.join(process.cwd(), 'data'))) {
+        // Do this before rotating accounts: a skipped upload must not burn a backup account.
+        console.log('[INFO] Repair upload skipped: another upload operation is already running.');
       } else {
         let uploadConfig = config;
         let rotatedTo = null;
@@ -3444,9 +4372,25 @@ export async function runMonitorService(configPath) {
 
         console.log('[INFO] Health checks failed after retries; running normal upload pipeline...');
         try {
-          await runNormalUploadPipeline(uploadConfig, { configPath: resolvedConfigPath });
+          const target = uploadConfig.monitor?.healthUrl || uploadConfig.experienceId || uploadConfig.experience?.name || 'current experience';
+          await runTrackedOperation({
+            dataDir: process.env.DATA_DIR || path.join(process.cwd(), 'data'),
+            type: 'monitor-reupload',
+            target,
+            metadata: { configPath: resolvedConfigPath },
+            verify: async (result) => {
+              const mainPlaceId = result?.placeIds?.Main || '';
+              if (!mainPlaceId) return { verified: false, reason: 'Main place ID was not returned' };
+              return verifyExperienceState({ mainPlaceId, expectedName: uploadConfig.experience?.name || '' });
+            },
+            fn: async () => runNormalUploadPipeline(uploadConfig, { configPath: resolvedConfigPath }),
+          });
         } catch (err) {
-          console.error('[FAIL] Normal upload pipeline error:', err);
+          if (err?.code === 'LOCKED') {
+            console.log(`[INFO] Repair upload skipped: ${err.message}`);
+          } else {
+            console.error('[FAIL] Normal upload pipeline error:', err);
+          }
           if (isRobloxAccountModerationError(err) && !(uploadConfig.accountPool?.backups?.length)) {
             uploadSuspendedModerationNoBackups = true;
             console.log(
@@ -3457,12 +4401,20 @@ export async function runMonitorService(configPath) {
       }
     } else if (decision.reason === 'roblox-down') {
       spawnDiscordTask('monitor status down (roblox-down)', async () => {
-        await updateDiscordStatusChannel(config, 'down');
+        await setSystemStatusBounded(SYSTEM_STATUS.DOWN, {
+          gameLink: config.monitor?.healthUrl || '',
+          operation: 'monitor',
+          reason: 'Roblox appears unavailable'
+        }, config);
       });
       console.log('[INFO] Health checks deferred because Roblox appears unavailable; no upload run.');
     } else {
       spawnDiscordTask('monitor status up', async () => {
-        await updateDiscordStatusChannel(config, 'up');
+        await setSystemStatusBounded(SYSTEM_STATUS.UP, {
+          gameLink: config.monitor?.healthUrl || '',
+          operation: 'monitor',
+          target: config.experience?.name || config.experienceId || 'current experience'
+        }, config);
       });
       console.log('[INFO] Health OK; no upload run.');
     }
@@ -3515,7 +4467,11 @@ export async function runChannelStatusService(configPath) {
       await updateDiscordVoiceChannelPlayerCount(config, voiceCount);
     });
     spawnDiscordTask('channel-status status', async () => {
-      await updateDiscordStatusChannel(config, status);
+      await setSystemStatusBounded(status === 'up' ? SYSTEM_STATUS.UP : SYSTEM_STATUS.DOWN, {
+        gameLink: config.monitor?.healthUrl || '',
+        operation: 'channelstatusservice',
+        reason: gameDown ? 'Game health check failed' : undefined
+      }, config);
     });
 
     if (decision.reason === 'roblox-down') {
@@ -3535,7 +4491,8 @@ async function userIsInRobloxGroup(robloxClient, userId, groupId) {
   const uid = normalizeUserId(userId, 'userId');
   const gid = Number(normalizeUserId(groupId, 'groupId'));
   try {
-    const json = await robloxClient.get(`https://groups.roblox.com/v1/users/${uid}/groups/roles`);
+    const response = await robloxClient.get(`https://groups.roblox.com/v1/users/${uid}/groups/roles`);
+    const json = response && typeof response.json === 'function' ? await response.json() : response;
     const list = json?.data;
     if (!Array.isArray(list)) {
       return false;
@@ -3783,7 +4740,22 @@ async function verifyOrWaitUniverseEditAfterGroupRank(creatorClient, config, ass
 async function connectFriendAccounts(config, { skipUniverseEditGrants = false } = {}) {
   const creatorAccount = requireValue(config.creatorAccount, 'creatorAccount');
   const creatorClient = new RobloxClient(resolveCookie(creatorAccount, 'creatorAccount'), creatorAccount.name || 'creator account');
-  const creatorUserId = await resolveCreatorUserId(creatorAccount, creatorClient);
+
+  if (config.experienceId) {
+    try {
+      const universeDetails = await getUniverseDetails(creatorClient, config.experienceId);
+      if (universeDetails && applyDetectedGroupOwnership(config, universeDetails)) {
+        console.log(
+          `[INFO] Detected group-owned universe ${config.experienceId} before permission automation; ` +
+            `using group rank/access flow for group ${config.creatorAccount?.groupId || universeDetails?.creator?.id || 'unknown'}.`
+        );
+      }
+    } catch (err) {
+      console.log(`[WARN] Could not detect group ownership before permission automation: ${err.message}`);
+    }
+  }
+
+  const creatorUserId = await resolveCreatorUserId(config.creatorAccount, creatorClient);
   const friendTargetUserId = creatorUserId;
 
   if (config.friendAutomation?.enabled === false) {
@@ -4172,7 +5144,51 @@ function isRobloxAccountModerationError(err) {
 }
 
 async function shouldReupload(config) {
-  const healthUrl = config.monitor?.healthUrl;
+  let healthUrl = String(config.monitor?.healthUrl || '').trim();
+  const configuredUniverse = config.accountPool?.primary?.experienceId ?? config.experienceId;
+
+  // If the saved health URL points at a different universe, resolve the configured
+  // universe's current root place instead of falsely declaring the experience down.
+  const savedPlaceId = extractPlaceIdFromRobloxGamesUrl(healthUrl);
+  if (savedPlaceId && configuredUniverse != null && String(configuredUniverse).trim() !== '') {
+    try {
+      const mapped = await requestJson(
+        `https://apis.roblox.com/universes/v1/places/${encodeURIComponent(savedPlaceId)}/universe`,
+        { headers: ROBLOX_PUBLIC_FETCH_HEADERS },
+        { operation: 'Roblox saved health place universe check', retries: 2, timeoutMs: 15_000, baseMs: 1000, maxMs: 10_000 }
+      );
+      const mappedUniverse = mapped?.universeId;
+      if (mappedUniverse != null && Number(mappedUniverse) !== Number(configuredUniverse)) {
+        try {
+          const gameJson = await requestJson(
+            `https://games.roblox.com/v1/games?universeIds=${encodeURIComponent(configuredUniverse)}`,
+            { headers: ROBLOX_PUBLIC_FETCH_HEADERS },
+            { operation: 'Roblox configured universe metadata for health target', retries: 2, timeoutMs: 15_000, baseMs: 1000, maxMs: 10_000 }
+          );
+          const rootPlaceId = gameJson?.data?.[0]?.rootPlaceId;
+          if (rootPlaceId != null && String(rootPlaceId).trim() !== '') {
+            healthUrl = buildRobloxGameHealthUrl(rootPlaceId);
+            console.log(
+              `[INFO] Corrected stale monitor.healthUrl from place ${savedPlaceId} ` +
+                `(universe ${mappedUniverse}) to configured universe ${configuredUniverse} ` +
+                `root place ${rootPlaceId}.`
+            );
+          } else {
+            console.log(
+              `[WARN] monitor.healthUrl points to universe ${mappedUniverse}, but configured universe ${configuredUniverse} ` +
+                `has no public rootPlaceId metadata; treating health as unavailable.`
+            );
+            return { shouldReupload: true, reason: 'configured-universe-no-root-place' };
+          }
+        } catch {
+          return { shouldReupload: true, reason: 'configured-universe-health-target-error' };
+        }
+      }
+    } catch {
+      // Continue using the configured URL. The normal health/API checks below remain authoritative.
+    }
+  }
+
   if (!healthUrl) {
     return {
       shouldReupload: true,
@@ -4183,7 +5199,7 @@ async function shouldReupload(config) {
   let pageUnhealthy = false;
   let pageReason = 'health-page-ok';
   try {
-    const response = await fetch(healthUrl, { headers: ROBLOX_PUBLIC_FETCH_HEADERS });
+    const response = await requestWithRetry(healthUrl, { headers: ROBLOX_PUBLIC_FETCH_HEADERS }, { operation: 'Roblox health page', retries: 2, timeoutMs: 15_000, baseMs: 1000, maxMs: 10_000 });
     const text = await response.text();
     pageUnhealthy = !response.ok || text.trim().length === 0;
     pageReason = pageUnhealthy ? 'health-page-unhealthy' : 'health-page-ok';
@@ -4205,52 +5221,38 @@ async function shouldReupload(config) {
   let apiUnhealthy = false;
   let apiReason = 'health-api-ok';
   try {
-    const uniRes = await fetch(
+    const uniJson = await requestJson(
       `https://apis.roblox.com/universes/v1/places/${encodeURIComponent(placeId)}/universe`,
-      { headers: ROBLOX_PUBLIC_FETCH_HEADERS }
+      { headers: ROBLOX_PUBLIC_FETCH_HEADERS },
+      { operation: 'Roblox place-to-universe health check', retries: 2, timeoutMs: 15_000, baseMs: 1000, maxMs: 10_000 }
     );
-    if (!uniRes.ok) {
+    const universeId = uniJson?.universeId;
+    if (universeId == null || universeId === '') {
       apiUnhealthy = true;
-      apiReason = `health-place-universe-${uniRes.status}`;
+      apiReason = 'health-place-universe-empty';
     } else {
-      const uniJson = await uniRes.json();
-      const universeId = uniJson?.universeId;
-      if (universeId == null || universeId === '') {
+      const expectedUniverse = configuredUniverse;
+      if (expectedUniverse != null && expectedUniverse !== '' && Number(expectedUniverse) !== Number(universeId)) {
         apiUnhealthy = true;
-        apiReason = 'health-place-universe-empty';
-      } else {
-        const configuredUniverse = config.accountPool?.primary?.experienceId ?? config.experienceId;
-        if (
-          configuredUniverse != null &&
-          configuredUniverse !== '' &&
-          Number(configuredUniverse) !== Number(universeId)
-        ) {
-          apiUnhealthy = true;
-          apiReason = 'health-universe-id-mismatch';
-          console.log(
-            `[WARN] monitor.healthUrl place ${placeId} resolves to universe ${universeId}, but config experienceId is ${configuredUniverse}. ` +
-              'Treating as unhealthy until the monitored URL matches this experience.'
-          );
-        }
-
-        const gamesRes = await fetch(
-          `https://games.roblox.com/v1/games?universeIds=${encodeURIComponent(universeId)}`,
-          { headers: ROBLOX_PUBLIC_FETCH_HEADERS }
+        apiReason = 'health-universe-id-mismatch';
+        console.log(
+          `[WARN] health target place ${placeId} still resolves to universe ${universeId}, ` +
+            `while config experienceId is ${expectedUniverse}.`
         );
-        if (!gamesRes.ok) {
-          apiUnhealthy = true;
-          apiReason = `health-games-api-${gamesRes.status}`;
-        } else {
-          const gamesJson = await gamesRes.json();
-          if (!Array.isArray(gamesJson?.data) || gamesJson.data.length === 0) {
-            apiUnhealthy = true;
-            apiReason = 'health-no-game-metadata';
-            console.log(
-              `[WARN] games.roblox.com returned no listing for universe ${universeId} (place ${placeId}). ` +
-                'The place may be moderated or delisted; treating as unhealthy.'
-            );
-          }
-        }
+      }
+
+      const gamesJson = await requestJson(
+        `https://games.roblox.com/v1/games?universeIds=${encodeURIComponent(universeId)}`,
+        { headers: ROBLOX_PUBLIC_FETCH_HEADERS },
+        { operation: 'Roblox game metadata health check', retries: 2, timeoutMs: 15_000, baseMs: 1000, maxMs: 10_000 }
+      );
+      if (!Array.isArray(gamesJson?.data) || gamesJson.data.length === 0) {
+        apiUnhealthy = true;
+        apiReason = 'health-no-game-metadata';
+        console.log(
+          `[WARN] games.roblox.com returned no listing for universe ${universeId} (place ${placeId}). ` +
+            'The place may be moderated or delisted; treating as unhealthy.'
+        );
       }
     }
   } catch {
@@ -4263,12 +5265,12 @@ async function shouldReupload(config) {
   if (combined) {
     reason = apiUnhealthy ? apiReason : pageReason;
   }
-  return { shouldReupload: combined, reason };
+  return { shouldReupload: combined, reason, healthUrl };
 }
 
 async function isRobloxBaseHealthy() {
   try {
-    const response = await fetch('https://www.roblox.com');
+    const response = await requestWithRetry('https://www.roblox.com', {}, { operation: 'Roblox base health', retries: 2, timeoutMs: 15_000, baseMs: 1000, maxMs: 10_000 });
     const text = await response.text();
     return response.ok && text.trim().length > 0;
   } catch {
@@ -4381,5 +5383,5 @@ export async function runReuploader(config, options = {}) {
   }
 
   console.log('[INFO] Health check failed or disabled; running normal upload pipeline...');
-  await runNormalUploadPipeline(uploadConfig, { configPath: resolvedConfigPath });
+  return await runNormalUploadPipeline(uploadConfig, { configPath: resolvedConfigPath });
 }

@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
-import { serverConfig, ensureDataDir } from './config.js';
+import { serverConfig, ensureDataDir, validateServerConfiguration } from './config.js';
 import { ensureConfigFile } from './services/configStore.js';
 import { normalizePersistedAssetPaths } from './services/assetStore.js';
 import {
@@ -13,6 +13,12 @@ import {
 } from './services/consoleLogStore.js';
 import { initDashboardAuth, getAuthEpoch } from './services/dashboardAuth.js';
 import { getDeploymentStatus, logDeploymentStatus } from './services/railwaySetup.js';
+import { recoverInterruptedOperations } from './services/recoveryManager.js';
+import { startMonitorWorker, stopMonitorWorker } from './services/monitorWorker.js';
+import { startStatisticsManager, stopStatisticsManager } from './services/statisticsManager.js';
+import { getHealthSnapshot, refreshHealthSnapshot } from './services/healthManager.js';
+import { log, safeErrorMessage } from '../src/shared/structuredLogger.js';
+import { installConsoleRedaction, registerSecrets } from '../src/shared/consoleRedaction.js';
 import { requireDashboardAuth } from './middleware/auth.js';
 import productsRouter from './routes/products.js';
 import codesRouter from './routes/codes.js';
@@ -28,10 +34,15 @@ import {
 } from '../src/shared/promptBridge.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+installConsoleRedaction();
 const app = express();
 
 ensureDataDir();
 ensureConfigFile();
+registerSecrets([serverConfig.apiKey, serverConfig.codesApiKey, serverConfig.githubToken, serverConfig.dashboardPassword, serverConfig.robloxCookie]);
+const startupValidation = validateServerConfiguration();
+for (const warning of startupValidation.warnings) log('WARN', warning);
+for (const error of startupValidation.errors) log('ERROR', error);
 normalizePersistedAssetPaths({ save: true });
 initDashboardAuth();
 
@@ -60,13 +71,22 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'dashboard', 'static')));
 
 app.get('/health', (_req, res) => {
-  const deployment = getDeploymentStatus();
-  res.json({
-    ok: deployment.ok,
-    tasks: tasks.size,
-    browserSessions: browserSessions.size,
-    deployment,
+  res.status(startupValidation.checks.dataDir ? 200 : 503).json({
+    ok: startupValidation.checks.dataDir,
+    readiness: startupValidation.ok ? 'READY' : 'DEGRADED',
+    timestamp: new Date().toISOString(),
   });
+});
+
+app.get('/ready', async (_req, res) => {
+  const deployment = getDeploymentStatus();
+  const health = await refreshHealthSnapshot();
+  const ready = startupValidation.ok && deployment.ok && health.primary !== 'DOWN';
+  return res.status(ready ? 200 : 503).json({ ok: ready, deployment, health });
+});
+
+app.get('/api/health', requireDashboardAuth, async (_req, res) => {
+  return res.json(await refreshHealthSnapshot());
 });
 
 app.use('/api/integration', integrationRouter);
@@ -170,7 +190,7 @@ wss.on('connection', (socket) => {
     attachSocketMessageHandler(socket);
   };
 
-  if (!serverConfig.dashboardPassword) {
+  if (!serverConfig.dashboardPassword && process.env.NODE_ENV !== 'production') {
     finishAuth();
     return;
   }
@@ -209,7 +229,14 @@ wss.on('connection', (socket) => {
   socket.on('message', authHandler);
 });
 
-setInterval(async () => {
+recoverInterruptedOperations()
+  .catch((error) => log('WARN', 'Operation recovery scan failed', { error: safeErrorMessage(error) }))
+  .finally(() => {
+    startMonitorWorker();
+    startStatisticsManager();
+  });
+
+const screenshotInterval = setInterval(async () => {
   for (const [sessionId] of browserSessions.entries()) {
     const image = await captureSessionScreenshot(sessionId);
     if (!image) {
@@ -222,3 +249,31 @@ setInterval(async () => {
     });
   }
 }, 4000);
+
+app.use((error, _req, res, _next) => {
+  log('ERROR', 'Unhandled HTTP error', { error: safeErrorMessage(error) });
+  if (res.headersSent) return;
+  return res.status(500).json({ error: 'Internal server error' });
+});
+
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log('INFO', `Received ${signal}; beginning graceful shutdown`);
+  stopMonitorWorker();
+  stopStatisticsManager();
+  clearInterval(screenshotInterval);
+  for (const [id, pending] of pendingPrompts.entries()) {
+    pending.reject(new Error(`Server shutting down (${signal})`));
+    pendingPrompts.delete(id);
+  }
+  try { disconnectAllClients(1001, 'Server shutting down'); } catch {}
+  await new Promise((resolve) => server.close(() => resolve()));
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('uncaughtException', (error) => { log('ERROR', 'Uncaught exception', { error: safeErrorMessage(error) }); shutdown('uncaughtException'); });
+process.on('unhandledRejection', (error) => { log('ERROR', 'Unhandled rejection', { error: safeErrorMessage(error) }); });

@@ -22,6 +22,10 @@ import { appendDashboardConsole, getDashboardConsoleText, getDeployId } from '..
 import { getAuthEpoch, revokeAllDashboardSessions } from '../services/dashboardAuth.js';
 import { disconnectAllClients, broadcast } from '../services/wsHub.js';
 import { startTask, tasks, normalizeCommand } from './autoreuploader.js';
+import { listOperations } from '../../src/shared/operationStore.js';
+import { getHealthSnapshot } from '../services/healthManager.js';
+import { getDiscordState } from '../services/discordStatusManager.js';
+import { getLastKnownStatistics } from '../services/statisticsManager.js';
 
 const router = Router();
 
@@ -104,6 +108,12 @@ router.get('/config', (_req, res) => {
 router.put('/config', (req, res) => {
   try {
     const updates = req.body?.fields || req.body || {};
+    if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
+      return res.status(400).json({ error: 'Configuration updates must be an object' });
+    }
+    if (Object.keys(updates).length > 300) {
+      return res.status(400).json({ error: 'Too many configuration fields in one request' });
+    }
     const result = updateConfigFields(updates);
     return res.json(result);
   } catch (error) {
@@ -255,8 +265,7 @@ router.get('/integration/manifest', (_req, res) => {
 router.get('/integration/luau/:filename', (req, res) => {
   try {
     assertLuauFilename(req.params.filename);
-    const includeSecrets = req.query.includeSecrets === '1';
-    const source = renderLuauTemplate(req.params.filename, { includeApiKey: includeSecrets });
+    const source = renderLuauTemplate(req.params.filename, { includeApiKey: false });
     res.type('text/plain; charset=utf-8').send(source);
   } catch (error) {
     return res.status(error.message.startsWith('Unknown') ? 404 : 400).json({
@@ -271,6 +280,10 @@ router.get('/status', (_req, res) => {
     configPath: getConfigFields().path,
     assets: listAssets(),
     deployment: getDeploymentStatus(),
+    health: getHealthSnapshot(),
+    operations: listOperations(serverConfig.dataDir, 50),
+    discord: getDiscordState(),
+    statistics: getLastKnownStatistics(),
   });
 });
 
