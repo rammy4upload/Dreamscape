@@ -124,6 +124,14 @@
       "required": true
     }
   },
+  "developerProducts": {
+    "enabled": true,
+    "apiKey": "OPTIONAL_OPEN_CLOUD_KEY_WITH_developer-product_READ_AND_WRITE",
+    "defaultPrice": 100,
+    "githubFilePath": "productids.json",
+    "outputPath": "/data/productids.json",
+    "required": false
+  },
   "assetAccounts": [
     {
       "name": "Asset Account 1",

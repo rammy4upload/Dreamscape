@@ -13,6 +13,7 @@ import {
   runRbxlUploadOnly,
   runConfigureExperienceOnly,
   runPushPlaceIdsOnly,
+  runSyncProductsOnly,
   runGrantFriendsPipeline,
   runGrantPermissionsPipeline,
   runMonitorService,
@@ -76,6 +77,7 @@ function parseCli(argv) {
     'normalupload',
     'configureexperience',
     'pushplaceids',
+    'syncproducts',
     'rbxlupload',
     'addfriends',
     'grantpermissions',
@@ -142,6 +144,8 @@ Commands:
                    No RBXL, friends/grants, place ID file/git push, or monitor.healthUrl update.
   --pushplaceids   Push placeids.json only using config.experience.places.*.placeId
                    and placeIds.git settings (git add/commit/push).
+  --syncproducts   Create any missing developer products (assets/developerProducts.catalog.json)
+                   in the current universe and push productids.json to the PlaceIdsRepo.
   --rbxlupload     Open Cloud RBXL publish to Main / Battle / Trade only.
   --addfriends     Friend requests/accepts only, then opens Roblox Studio on the Main place so you
                    can grant collaborators manually. No automatic Team Create grants, no Open Cloud
@@ -239,6 +243,9 @@ export async function main() {
       break;
     case 'pushplaceids':
       await tracked(command, config, () => runPushPlaceIdsOnly(config, { configPath }));
+      break;
+    case 'syncproducts':
+      await tracked(command, config, () => runSyncProductsOnly(config, { configPath }));
       break;
     case 'rbxlupload':
       await tracked(command, config, () => runRbxlUploadOnly(config, { configPath }));

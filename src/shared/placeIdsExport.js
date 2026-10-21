@@ -266,3 +266,77 @@ export async function pushExistingPlaceIds(config, { configPath = '' } = {}) {
     'Configure PLACEIDS_GITHUB_TOKEN + placeIds.git.githubOwner/githubRepo for Railway, or mount a git repo at placeIds.git.repositoryPath.'
   );
 }
+
+/**
+ * Generic version of exportPlaceIds() for any JSON file that lives in the same GitHub repo
+ * (used for productids.json). Same delivery order: write locally, then GitHub API, then local git.
+ *
+ * @param {string} json                 serialized file content
+ * @param {object} opts
+ * @param {string} opts.fileName        default file name, e.g. 'productids.json'
+ * @param {string} [opts.outputPath]    configured output path (relative -> repo/data dir)
+ * @param {string} [opts.githubFilePath] path inside the GitHub repo (defaults to fileName)
+ * @param {string} [opts.commitMessage]
+ * @param {boolean} [opts.required]     throw instead of warn when the push fails
+ * @param {string} [opts.label]         used in log lines
+ */
+export async function exportJsonFile(json, opts, config, { configPath = '' } = {}) {
+  const label = opts.label || opts.fileName;
+  const gitBase = config.placeIds?.git || {};
+  const gitConfig = {
+    ...gitBase,
+    githubFilePath: opts.githubFilePath || opts.fileName,
+    commitMessage: opts.commitMessage || `Update ${label}`,
+  };
+
+  // Resolve the local output path the same way place IDs do (Railway -> /data, repo path, config dir).
+  let configuredOutputPath = opts.outputPath || `./${opts.fileName}`;
+  if (isRailway() && !path.isAbsolute(configuredOutputPath)) {
+    configuredOutputPath = path.join(process.env.DATA_DIR || '/data', opts.fileName);
+  }
+  const repoPathConfigured = gitConfig.repositoryPath ? String(gitConfig.repositoryPath).trim() : '';
+  const repositoryPathAbs = resolvePathAgainstConfigFileDir(repoPathConfigured, configPath);
+  const outputPathAbs =
+    gitConfig.enabled && repositoryPathAbs && !path.isAbsolute(configuredOutputPath)
+      ? path.join(repositoryPathAbs, configuredOutputPath)
+      : resolvePathAgainstConfigFileDir(configuredOutputPath, configPath);
+
+  fs.mkdirSync(path.dirname(outputPathAbs), { recursive: true });
+  atomicWriteFile(outputPathAbs, json, { backup: true });
+  console.log(`[SUCCESS] Wrote ${label} to ${outputPathAbs}`);
+
+  const required = opts.required ?? gitBase.required === true;
+  const fail = (message) => {
+    if (required) throw new Error(message);
+    console.log(`[WARN] ${message} Continuing because ${label} export is not required.`);
+  };
+
+  if (!gitConfig.enabled) {
+    fail(`placeIds.git.enabled is false; ${label} was saved locally only and was NOT published, so the game keeps using its built-in IDs.`);
+    return { path: outputPathAbs, pushed: false, method: 'disabled' };
+  }
+
+  const githubToken = process.env.PLACEIDS_GITHUB_TOKEN || process.env.GITHUB_TOKEN;
+  if (gitConfig.githubOwner && gitConfig.githubRepo && githubToken) {
+    try {
+      await pushPlaceIdsViaGitHub(json, gitConfig);
+      return { path: outputPathAbs, pushed: true, method: 'github' };
+    } catch (error) {
+      fail(`GitHub push of ${label} failed: ${error?.message || String(error)}. Local file is at ${outputPathAbs}.`);
+      return { path: outputPathAbs, pushed: false, method: 'github', pushError: error?.message || String(error) };
+    }
+  }
+
+  if (repositoryPathAbs && fs.existsSync(path.join(repositoryPathAbs, '.git'))) {
+    try {
+      await pushPlaceIdsViaLocalGit(outputPathAbs, repositoryPathAbs, gitConfig);
+      return { path: outputPathAbs, pushed: true, method: 'local-git' };
+    } catch (error) {
+      fail(`Local git push of ${label} failed: ${error?.message || String(error)}.`);
+      return { path: outputPathAbs, pushed: false, method: 'local-git', pushError: error?.message || String(error) };
+    }
+  }
+
+  fail(`${label} saved on disk only: set PLACEIDS_GITHUB_TOKEN (or GITHUB_TOKEN) plus placeIds.git.githubOwner/githubRepo.`);
+  return { path: outputPathAbs, pushed: false };
+}

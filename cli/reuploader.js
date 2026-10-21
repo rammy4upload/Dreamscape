@@ -20,6 +20,7 @@ import {
 } from '../src/shared/promptBridge.js';
 import { ensureExperienceIconFile, freshenImageFile } from '../src/shared/imageFreshness.js';
 import { exportPlaceIds } from '../src/shared/placeIdsExport.js';
+import { syncDeveloperProductsSafe, syncDeveloperProducts } from '../src/shared/developerProducts.js';
 import { patchRbxlUploadStamp, shouldPatchRbxlUploadStamp } from './rbxlUploadPatch.js';
 
 const PLACE_KEYS = ['Main', 'Battle', 'Trade'];
@@ -2820,6 +2821,16 @@ async function writePlaceIds(config, placeIds, { configPath = '' } = {}) {
   return exportPlaceIds(placeIds, config, { configPath });
 }
 
+/**
+ * Creates the catalog's developer products in the (new) universe and publishes productids.json.
+ * Non-fatal by default so a product/scope problem can never abort a reupload.
+ */
+async function syncProductsForUniverse(config, universeId, { configPath = '', strict = false } = {}) {
+  const apiKey = trimConfigSecret(config.developerProducts?.apiKey) || resolveApiKey(config, 'Main');
+  const run = strict ? syncDeveloperProducts : syncDeveloperProductsSafe;
+  return run(config, universeId, { apiKey, configPath });
+}
+
 async function freshenExperienceMedia(experience) {
   if (experience?.iconPath) {
     const resolved = path.resolve(experience.iconPath);
@@ -3929,6 +3940,7 @@ async function configureExistingExperience(client, config, { configPath = '' } =
     config
   );
   await writePlaceIds(config, placeIds, { configPath });
+  await syncProductsForUniverse(config, universeId, { configPath });
 
   return { universeId, placeIds };
 }
@@ -3979,9 +3991,25 @@ export async function runPushPlaceIdsOnly(config, { configPath = '' } = {}) {
   const creatorAccount = requireValue(config.creatorAccount, 'creatorAccount');
   const creatorClient = new RobloxClient(resolveCookie(creatorAccount, 'creatorAccount'), creatorAccount.name || 'creator account');
   await getAuthenticatedUser(creatorClient);
-  const { placeIds } = await resolveExperiencePlaceIds(creatorClient, config);
+  const { universeId, placeIds } = await resolveExperiencePlaceIds(creatorClient, config);
   await writePlaceIds(config, placeIds, { configPath });
+  await syncProductsForUniverse(config, universeId, { configPath });
   console.log('[INFO] Push-placeids pipeline finished.');
+}
+
+/**
+ * Developer products only: create whatever is missing in the configured universe and push
+ * productids.json. Errors are NOT swallowed here, so you can see exactly what is wrong.
+ */
+export async function runSyncProductsOnly(config, { configPath = '' } = {}) {
+  config = withPrimaryAccountApplied(config);
+  const creatorAccount = requireValue(config.creatorAccount, 'creatorAccount');
+  const creatorClient = new RobloxClient(resolveCookie(creatorAccount, 'creatorAccount'), creatorAccount.name || 'creator account');
+  await getAuthenticatedUser(creatorClient);
+  const { universeId } = await resolveExperiencePlaceIds(creatorClient, config);
+  const result = await syncProductsForUniverse(config, universeId, { configPath, strict: true });
+  console.log('[INFO] Sync-products pipeline finished.');
+  return { universeId, result };
 }
 
 /**

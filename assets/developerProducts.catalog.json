@@ -1,0 +1,385 @@
+{
+  "_comment": "Developer products created automatically after each reupload. 'path' mirrors assets.productId in the Assets module (dot = nested table; numbers are 1-based Lua indexes). 'price' is in Robux. Entries WITHOUT a price use developerProducts.defaultPrice and log a warning - fill them in. RoPowers group 6 is intentionally absent (empty DO-NOT-USE slot); it is exported as an empty table.",
+  "products": [
+    {
+      "path": "Starter",
+      "name": "Starter",
+      "price": 15
+    },
+    {
+      "path": "TenBP",
+      "name": "Ten BP",
+      "price": 10
+    },
+    {
+      "path": "FiftyBP",
+      "name": "Fifty BP",
+      "price": 30
+    },
+    {
+      "path": "TwoHundredBP",
+      "name": "Two Hundred BP",
+      "price": 75
+    },
+    {
+      "path": "TwoHundredAndFiftyBP",
+      "name": "Two Hundred And Fifty BP",
+      "price": 80
+    },
+    {
+      "path": "FiveHundredBP",
+      "name": "Five Hundred BP",
+      "price": 130
+    },
+    {
+      "path": "OneThousandBP",
+      "name": "One Thousand BP",
+      "price": 200
+    },
+    {
+      "path": "TwoThousandBP",
+      "name": "Two Thousand BP",
+      "price": 200
+    },
+    {
+      "path": "UMV1",
+      "name": "UMV1",
+      "price": 5
+    },
+    {
+      "path": "UMV3",
+      "name": "UMV3",
+      "price": 10
+    },
+    {
+      "path": "UMV6",
+      "name": "UMV6",
+      "price": 15
+    },
+    {
+      "path": "_10kP",
+      "name": "10k P",
+      "price": 10
+    },
+    {
+      "path": "_50kP",
+      "name": "50k P",
+      "price": 40
+    },
+    {
+      "path": "_100kP",
+      "name": "100k P",
+      "price": 75
+    },
+    {
+      "path": "_200kP",
+      "name": "200k P",
+      "price": 120
+    },
+    {
+      "path": "PBSpins1",
+      "name": "PBSpins1",
+      "price": 5
+    },
+    {
+      "path": "PBSpins5",
+      "name": "PBSpins5",
+      "price": 20
+    },
+    {
+      "path": "PBSpins10",
+      "name": "PBSpins10",
+      "price": 30
+    },
+    {
+      "path": "AshGreninja",
+      "name": "Ash Greninja",
+      "price": 150
+    },
+    {
+      "path": "DracoElectivire",
+      "name": "Draco Electivire",
+      "price": 250
+    },
+    {
+      "path": "LugiaShadow",
+      "name": "Lugia Shadow",
+      "price": 300
+    },
+    {
+      "path": "HoohDarkice",
+      "name": "Hooh Darkice",
+      "price": 300
+    },
+    {
+      "path": "LucarioThief",
+      "name": "Lucario Thief",
+      "price": 75
+    },
+    {
+      "path": "Hoverboard",
+      "name": "Hoverboard",
+      "price": 10
+    },
+    {
+      "path": "MasterBall",
+      "name": "Master Ball",
+      "price": 10
+    },
+    {
+      "path": "MewtwoniteShadowX",
+      "name": "Mewtwonite Shadow X",
+      "price": 400
+    },
+    {
+      "path": "MewtwoniteShadowY",
+      "name": "Mewtwonite Shadow Y",
+      "price": 400
+    },
+    {
+      "path": "LottoTicket",
+      "name": "Lotto Ticket",
+      "price": 30
+    },
+    {
+      "path": "TixPurchase",
+      "name": "Tix Purchase",
+      "price": 125
+    },
+    {
+      "path": "ShadowMewtwo",
+      "name": "Shadow Mewtwo",
+      "price": 500
+    },
+    {
+      "path": "BasicRoulette",
+      "name": "Basic Roulette",
+      "price": 10
+    },
+    {
+      "path": "BronzeRoulette",
+      "name": "Bronze Roulette",
+      "price": 25
+    },
+    {
+      "path": "SilverRoulette",
+      "name": "Silver Roulette",
+      "price": 50
+    },
+    {
+      "path": "GoldRoulette",
+      "name": "Gold Roulette",
+      "price": 75
+    },
+    {
+      "path": "DiamondRoulette",
+      "name": "Diamond Roulette",
+      "price": 125
+    },
+    {
+      "path": "PlatinumRoulette",
+      "name": "Platinum Roulette",
+      "price": 175
+    },
+    {
+      "path": "ShinyRoulette",
+      "name": "Shiny Roulette",
+      "price": 100
+    },
+    {
+      "path": "SuperShinyRoulette",
+      "name": "Super Shiny Roulette",
+      "price": 350
+    },
+    {
+      "path": "Random-Shiny-6x31",
+      "name": "Random Shiny 6x31",
+      "price": 399
+    },
+    {
+      "path": "Random-6x31",
+      "name": "Random 6x31",
+      "price": 150
+    },
+    {
+      "path": "Random-Shiny",
+      "name": "Random Shiny",
+      "price": 100
+    },
+    {
+      "path": "Cinderace-Pirate",
+      "name": "Cinderace Pirate",
+      "price": 100
+    },
+    {
+      "path": "Xerneas-Galaxy",
+      "name": "Xerneas Galaxy",
+      "price": 500
+    },
+    {
+      "path": "Shadow-Lugia",
+      "name": "Shadow Lugia",
+      "price": 500
+    },
+    {
+      "path": "Mewtwo-Shadow",
+      "name": "Mewtwo Shadow",
+      "price": 500
+    },
+    {
+      "path": "Lunala-H",
+      "name": "Lunala H",
+      "price": 500
+    },
+    {
+      "path": "Shinifier",
+      "name": "Shinifier",
+      "price": 750
+    },
+    {
+      "path": "SilverBottleCap",
+      "name": "Silver Bottle Cap",
+      "price": 400
+    },
+    {
+      "path": "GoldBottleCap",
+      "name": "Gold Bottle Cap",
+      "price": 1500
+    },
+    {
+      "path": "Necrozma-Dialga",
+      "name": "Necrozma Dialga",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-Yveltal",
+      "name": "Necrozma Yveltal",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-Zekrom",
+      "name": "Necrozma Zekrom",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-Palkia",
+      "name": "Necrozma Palkia",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-Groudon",
+      "name": "Necrozma Groudon",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-Kyogre",
+      "name": "Necrozma Kyogre",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-Zygarde",
+      "name": "Necrozma Zygarde",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-Rayquaza",
+      "name": "Necrozma Rayquaza",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-HoOh",
+      "name": "Necrozma Ho Oh",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-Giratina",
+      "name": "Necrozma Giratina",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-Xerneas",
+      "name": "Necrozma Xerneas",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-Reshiram",
+      "name": "Necrozma Reshiram",
+      "price": 1000
+    },
+    {
+      "path": "Necrozma-Lugia",
+      "name": "Necrozma Lugia",
+      "price": 1000
+    },
+    {
+      "path": "Ho-Oh-Dark",
+      "name": "Ho Oh Dark",
+      "price": 450
+    },
+    {
+      "path": "RoPowers.1.1",
+      "name": "Ro Power: XP Power 1",
+      "price": 15
+    },
+    {
+      "path": "RoPowers.1.2",
+      "name": "Ro Power: XP Power 2",
+      "price": 20
+    },
+    {
+      "path": "RoPowers.2.1",
+      "name": "Ro Power: Hatching Power 1",
+      "price": 10
+    },
+    {
+      "path": "RoPowers.2.2",
+      "name": "Ro Power: Hatching Power 2",
+      "price": 15
+    },
+    {
+      "path": "RoPowers.3.1",
+      "name": "Ro Power: Pokedollars Power 1",
+      "price": 20
+    },
+    {
+      "path": "RoPowers.3.2",
+      "name": "Ro Power: Pokedollars Power 2",
+      "price": 35
+    },
+    {
+      "path": "RoPowers.4.1",
+      "name": "Ro Power: EVs Power 1",
+      "price": 10
+    },
+    {
+      "path": "RoPowers.4.2",
+      "name": "Ro Power: EVs Power 2",
+      "price": 15
+    },
+    {
+      "path": "RoPowers.5.1",
+      "name": "Ro Power: Shiny Boost Power",
+      "price": 30
+    },
+    {
+      "path": "RoPowers.7.1",
+      "name": "Ro Power: Legendaries Power",
+      "price": 45
+    },
+    {
+      "path": "QuestRerolls.x1",
+      "name": "Quest Rerolls x1",
+      "price": 15
+    },
+    {
+      "path": "QuestRerolls.x3",
+      "name": "Quest Rerolls x3",
+      "price": 45
+    },
+    {
+      "path": "QuestRerolls.x10",
+      "name": "Quest Rerolls x10",
+      "price": 135
+    }
+  ]
+}
