@@ -41,6 +41,26 @@ test('shipped catalog contains valid, unique fixed-reward products only', () => 
   assert.throws(() => normalizeCatalog([{ path: 'RouletteSpinBasic', name: 'Roulette Spin Basic', price: 10 }]), /excluded from automatic creation/);
 });
 
+
+test('root productids.json is a non-live template with sequential placeholders 1..61', () => {
+  const template = JSON.parse(fs.readFileSync(new URL('../productids.json', import.meta.url), 'utf8'));
+  assert.equal(template._template, true);
+  assert.equal(template.universeId, 0);
+  const values = [];
+  const visit = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+    } else if (node && typeof node === 'object') {
+      Object.values(node).forEach(visit);
+    } else {
+      values.push(node);
+    }
+  };
+  visit(template.productids);
+  assert.equal(values.length, 61);
+  assert.deepEqual(values, Array.from({ length: 61 }, (_, i) => i + 1));
+});
+
 test('normalizeCatalog rejects duplicates and bad prices', () => {
   assert.throws(() => normalizeCatalog([{ path: 'A', name: 'X', price: 5 }, { path: 'B', name: 'x', price: 5 }]), /duplicate product name/);
   assert.throws(() => normalizeCatalog([{ path: 'A', price: 0 }]), /price/);

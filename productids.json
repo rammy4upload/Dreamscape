@@ -1,0 +1,85 @@
+{
+  "_template": true,
+  "_notice": "TEMPLATE ONLY: IDs 1..N are placeholders, NOT real Roblox Developer Product IDs. Do not use for purchases. Run POST /api/developer-products/sync to replace this file with real IDs for your universe.",
+  "universeId": 0,
+  "productids": {
+    "Starter": 1,
+    "TenBP": 2,
+    "FiftyBP": 3,
+    "TwoHundredBP": 4,
+    "TwoHundredAndFiftyBP": 5,
+    "FiveHundredBP": 6,
+    "OneThousandBP": 7,
+    "TwoThousandBP": 8,
+    "UMV1": 9,
+    "UMV3": 10,
+    "UMV6": 11,
+    "_10kP": 12,
+    "_50kP": 13,
+    "_100kP": 14,
+    "_200kP": 15,
+    "AshGreninja": 16,
+    "DracoElectivire": 17,
+    "LugiaShadow": 18,
+    "HoohDarkice": 19,
+    "LucarioThief": 20,
+    "Hoverboard": 21,
+    "MasterBall": 22,
+    "MewtwoniteShadowX": 23,
+    "MewtwoniteShadowY": 24,
+    "TixPurchase": 25,
+    "ShadowMewtwo": 26,
+    "Cinderace-Pirate": 27,
+    "Xerneas-Galaxy": 28,
+    "Shadow-Lugia": 29,
+    "Mewtwo-Shadow": 30,
+    "Lunala-H": 31,
+    "Shinifier": 32,
+    "SilverBottleCap": 33,
+    "GoldBottleCap": 34,
+    "Necrozma-Dialga": 35,
+    "Necrozma-Yveltal": 36,
+    "Necrozma-Zekrom": 37,
+    "Necrozma-Palkia": 38,
+    "Necrozma-Groudon": 39,
+    "Necrozma-Kyogre": 40,
+    "Necrozma-Zygarde": 41,
+    "Necrozma-Rayquaza": 42,
+    "Necrozma-HoOh": 43,
+    "Necrozma-Giratina": 44,
+    "Necrozma-Xerneas": 45,
+    "Necrozma-Reshiram": 46,
+    "Necrozma-Lugia": 47,
+    "Ho-Oh-Dark": 48,
+    "RoPowers": [
+      [
+        49,
+        50
+      ],
+      [
+        51,
+        52
+      ],
+      [
+        53,
+        54
+      ],
+      [
+        55,
+        56
+      ],
+      [
+        57
+      ],
+      [],
+      [
+        58
+      ]
+    ],
+    "QuestRerolls": {
+      "x1": 59,
+      "x3": 60,
+      "x10": 61
+    }
+  }
+}

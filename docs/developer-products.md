@@ -2,6 +2,8 @@
 
 This feature creates **fixed-reward** developer products for the currently configured universe, verifies the created IDs, and publishes a universe-stamped `productids.json` to the same GitHub repository used for `placeids.json`. The game reads the map through `PlaceIdService:GetProductIds()` and overlays those IDs onto `assets.productId` only after the test-universe override has been applied.
 
+The repository contains a root-level `productids.json` template with 61 sequential placeholder values (`1` through `61`) so the expected shape is visible in GitHub before the first sync. It is stamped with `universeId: 0` and `_template: true`; the Roblox loader explicitly refuses to apply it. These are **not real Roblox product IDs**. Run the authenticated sync endpoint or `npm run syncproducts` to replace the template with actual IDs. A successful Railway response must report `published: true` for the GitHub file to be updated.
+
 ## What is synced
 
 `assets/developerProducts.catalog.json` contains the fixed-reward products, including currency packs, named items, named Pokémon/variants, rerolls, and fixed-duration powerups. Paid spin tokens, roulette/lottery purchases, and random-reward products are intentionally excluded from automated creation. Their existing hardcoded `assets.productId` values remain untouched by the merge. Review Roblox's randomized virtual item policy before designing any random-reward monetization.

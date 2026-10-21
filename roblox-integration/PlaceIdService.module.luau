@@ -138,6 +138,13 @@ function PlaceIdService:GetProductIds()
 	for attempt = 1, PRODUCT_ATTEMPTS do
 		local ok, dataOrError, requestError = pcall(requestJson, PRODUCT_PATH)
 		if ok and type(dataOrError) == "table" then
+			-- The repository ships with a safe template so the file exists before the first sync.
+			-- Never apply sequential placeholder IDs (1..N) to the live game.
+			if dataOrError._template == true then
+				warn("[PlaceIdService] productids.json is still a template; run the Railway Developer Product sync. Built-in IDs will be kept.")
+				return nil
+			end
+
 			local ids = dataOrError.productids
 			if type(ids) ~= "table" then
 				warn("[PlaceIdService] productids.json has no productids table; keeping built-in IDs.")
