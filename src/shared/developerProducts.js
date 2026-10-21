@@ -10,6 +10,16 @@ const DEFAULT_CATALOG_PATH = path.resolve(__dirname, '../../assets/developerProd
 const API_BASE = 'https://apis.roblox.com/developer-products/v2/universes';
 
 const PATH_RE = /^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/;
+
+// Keep auto-creation limited to deterministic, fixed-reward purchases. These keys
+// are deliberately not created by the sync system.
+const BLOCKED_AUTOCREATE_PATHS = new Set([
+  'PBSpins1', 'PBSpins5', 'PBSpins10', 'PBSpins99', 'LottoTicket',
+  'RouletteSpinBasic', 'RouletteSpinBronze', 'RouletteSpinSilver', 'RouletteSpinGold', 'RouletteSpinDiamond',
+  'BasicRoulette', 'BronzeRoulette', 'SilverRoulette', 'GoldRoulette',
+  'DiamondRoulette', 'PlatinumRoulette', 'ShinyRoulette', 'SuperShinyRoulette',
+  'Random-Shiny-6x31', 'Random-6x31', 'Random-Shiny',
+]);
 const MAX_NAME_LENGTH = 50;
 const MAX_DESCRIPTION_LENGTH = 1000;
 // Create endpoint is limited to 3 requests/second per key owner; stay safely under it.
@@ -49,6 +59,9 @@ export function normalizeCatalog(rawEntries, { defaultPrice = 100 } = {}) {
     const where = `catalog entry #${index + 1}`;
     const entryPath = String(raw?.path ?? '').trim();
     if (!PATH_RE.test(entryPath)) throw new Error(`${where}: invalid path "${entryPath}"`);
+    if (BLOCKED_AUTOCREATE_PATHS.has(entryPath)) {
+      throw new Error(`${where} (${entryPath}): excluded from automatic creation; only fixed-reward products are synced`);
+    }
     if (seenPaths.has(entryPath)) throw new Error(`${where}: duplicate path "${entryPath}"`);
     seenPaths.add(entryPath);
 
@@ -190,8 +203,8 @@ async function createWithRecovery(client, universeId, entry, attempts = 4) {
 /* --------------------------------------------------------------------- sync */
 
 /**
- * Creates every catalog product that doesn't exist yet in `universeId`, then publishes
- * productids.json (same GitHub repo/route as placeids.json). Safe to re-run.
+ * Creates every eligible fixed-reward catalog product that doesn't exist yet in `universeId`,
+ * then publishes productids.json (same GitHub repo/route as placeids.json). Safe to re-run.
  */
 export async function syncDeveloperProducts(config, universeId, { apiKey, configPath = '' } = {}) {
   const settings = config.developerProducts || {};

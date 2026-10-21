@@ -106,9 +106,9 @@
     "git": {
       "enabled": true,
       "repositoryPath": "",
-      "remoteRawUrl": "https://raw.githubusercontent.com/Username/PlaceIdsRepo/main/placeids.json",
+      "remoteRawUrl": "https://raw.githubusercontent.com/rammy4upload/PlaceIdsRepo/main/placeids.json",
       "commitMessage": "Update place IDs",
-      "githubOwner": "Username",
+      "githubOwner": "rammy4upload",
       "githubRepo": "PlaceIdsRepo",
       "githubBranch": "main",
       "githubFilePath": "placeids.json"

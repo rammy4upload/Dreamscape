@@ -1,0 +1,97 @@
+-- ServerScriptService.PlaceIdInit (Script)
+-- Reads placeids.json and productids.json from PlaceIdsRepo before Assets loads.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local assetsModule = require(ReplicatedStorage:WaitForChild("AssetsInit"))
+
+local function getOrCreate(className, name)
+	local existing = ReplicatedStorage:FindFirstChild(name)
+	if existing and existing.ClassName == className then
+		return existing
+	end
+	if existing then
+		existing:Destroy()
+	end
+	local object = Instance.new(className)
+	object.Name = name
+	object.Parent = ReplicatedStorage
+	return object
+end
+
+local updateEvent = getOrCreate("RemoteEvent", "UpdateAssetList")
+local getAssetList = getOrCreate("RemoteFunction", "GetAssetList")
+
+local serviceOk, PlaceIdService = pcall(function()
+	return require(
+		ServerScriptService:WaitForChild("AutoReuploader"):WaitForChild("PlaceIdService")
+	)
+end)
+
+local function snapshot()
+	return {
+		INITIALIZED = assetsModule.INITIALIZED,
+		RTD = assetsModule.RTD,
+		ProductIds = assetsModule.ProductIds,
+	}
+end
+
+getAssetList.OnServerInvoke = function(_player)
+	return snapshot()
+end
+
+local function installAssets()
+	local RTD = {
+		Main = assetsModule.RTD.Main,
+		Battle = assetsModule.RTD.Battle,
+		Trade = assetsModule.RTD.Trade,
+	}
+
+	if serviceOk and PlaceIdService then
+		local placeOk, ids = pcall(function()
+			return PlaceIdService:Get()
+		end)
+		if placeOk and type(ids) == "table" then
+			RTD.Main = tonumber(ids.MainPlaceId) or RTD.Main
+			RTD.Battle = tonumber(ids.BattlePlaceId) or RTD.Battle
+			RTD.Trade = tonumber(ids.TradePlaceId) or RTD.Trade
+		else
+			warn("[PlaceIdInit] PlaceIdService:Get() failed; keeping fallback place IDs.")
+		end
+
+		local productsOk, products = pcall(function()
+			return PlaceIdService:GetProductIds()
+		end)
+		if productsOk and type(products) == "table" then
+			assetsModule.ProductIds = products
+		else
+			assetsModule.ProductIds = nil
+			warn("[PlaceIdInit] No matching product ID mapping loaded; built-in product IDs will be kept.")
+		end
+	else
+		warn("[PlaceIdInit] PlaceIdService could not be required; using built-in IDs.")
+		assetsModule.ProductIds = nil
+	end
+
+	assetsModule.RTD = RTD
+	assetsModule.INITIALIZED = true
+	print(string.format(
+		"[PlaceIdInit] RTD Main=%s Battle=%s Trade=%s; dynamic product IDs=%s",
+		tostring(RTD.Main),
+		tostring(RTD.Battle),
+		tostring(RTD.Trade),
+		assetsModule.ProductIds and "loaded" or "not loaded"
+	))
+
+	updateEvent:FireAllClients(snapshot())
+end
+
+installAssets()
+
+Players.PlayerAdded:Connect(function(player)
+	updateEvent:FireClient(player, snapshot())
+end)
+
+print("--- PLACE + DEVELOPER PRODUCT ID SYNC READY ---")

@@ -1,5 +1,5 @@
 {
-  "_comment": "Developer products created automatically after each reupload. 'path' mirrors assets.productId in the Assets module (dot = nested table; numbers are 1-based Lua indexes). 'price' is in Robux. Entries WITHOUT a price use developerProducts.defaultPrice and log a warning - fill them in. RoPowers group 6 is intentionally absent (empty DO-NOT-USE slot); it is exported as an empty table.",
+  "_comment": "Only fixed, clearly defined rewards are auto-created. Paid spins, roulette/lottery, and randomized-reward products are intentionally excluded and retain their existing hardcoded IDs in Assets. 'path' mirrors assets.productId in Assets (dot = nested table; numeric segments are 1-based).",
   "products": [
     {
       "path": "Starter",
@@ -77,21 +77,6 @@
       "price": 120
     },
     {
-      "path": "PBSpins1",
-      "name": "PBSpins1",
-      "price": 5
-    },
-    {
-      "path": "PBSpins5",
-      "name": "PBSpins5",
-      "price": 20
-    },
-    {
-      "path": "PBSpins10",
-      "name": "PBSpins10",
-      "price": 30
-    },
-    {
       "path": "AshGreninja",
       "name": "Ash Greninja",
       "price": 150
@@ -137,11 +122,6 @@
       "price": 400
     },
     {
-      "path": "LottoTicket",
-      "name": "Lotto Ticket",
-      "price": 30
-    },
-    {
       "path": "TixPurchase",
       "name": "Tix Purchase",
       "price": 125
@@ -150,61 +130,6 @@
       "path": "ShadowMewtwo",
       "name": "Shadow Mewtwo",
       "price": 500
-    },
-    {
-      "path": "BasicRoulette",
-      "name": "Basic Roulette",
-      "price": 10
-    },
-    {
-      "path": "BronzeRoulette",
-      "name": "Bronze Roulette",
-      "price": 25
-    },
-    {
-      "path": "SilverRoulette",
-      "name": "Silver Roulette",
-      "price": 50
-    },
-    {
-      "path": "GoldRoulette",
-      "name": "Gold Roulette",
-      "price": 75
-    },
-    {
-      "path": "DiamondRoulette",
-      "name": "Diamond Roulette",
-      "price": 125
-    },
-    {
-      "path": "PlatinumRoulette",
-      "name": "Platinum Roulette",
-      "price": 175
-    },
-    {
-      "path": "ShinyRoulette",
-      "name": "Shiny Roulette",
-      "price": 100
-    },
-    {
-      "path": "SuperShinyRoulette",
-      "name": "Super Shiny Roulette",
-      "price": 350
-    },
-    {
-      "path": "Random-Shiny-6x31",
-      "name": "Random Shiny 6x31",
-      "price": 399
-    },
-    {
-      "path": "Random-6x31",
-      "name": "Random 6x31",
-      "price": 150
-    },
-    {
-      "path": "Random-Shiny",
-      "name": "Random Shiny",
-      "price": 100
     },
     {
       "path": "Cinderace-Pirate",

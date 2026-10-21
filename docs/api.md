@@ -42,3 +42,8 @@ Base URL: `https://<your-domain>` (e.g. `autoreuploader-production.up.railway.ap
 ```
 
 Response includes `assetId` for `MarketplaceService:PromptPurchase`.
+
+
+## Developer product ID sync
+
+`POST /api/developer-products/sync` requires the same `API_KEY` authentication as the other protected APIs. It creates missing fixed-reward developer products for the universe selected by `accountPool.primary.experienceId`, then publishes `productids.json` through the configured `placeIds.git` GitHub settings. See [developer-products.md](./developer-products.md) for required Open Cloud and GitHub credentials.

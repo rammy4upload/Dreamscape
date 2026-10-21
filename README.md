@@ -4,6 +4,8 @@ Roblox experience automation for **Monster Brick Bronze** copies: RBXL publish, 
 
 **Documentation:** [docs/README.md](./docs/README.md)
 
+**Automatic Developer Product IDs:** [docs/developer-products.md](./docs/developer-products.md)
+
 | Quick start | |
 |-------------|---|
 | **Production** | [Railway deploy](./docs/RAILWAY.md) |

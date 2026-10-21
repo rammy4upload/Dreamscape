@@ -26,9 +26,9 @@ test('buildIdTree produces Lua-shaped tables (1-based paths, empty slot 6)', () 
   assert.deepEqual(tree.QuestRerolls, { x1: 31 });
 });
 
-test('shipped catalog is valid, unique, and covers every product key', () => {
+test('shipped catalog contains valid, unique fixed-reward products only', () => {
   const { entries, defaultedPaths } = normalizeCatalog(loadCatalog({}), { defaultPrice: 100 });
-  assert.equal(entries.length, 76);
+  assert.equal(entries.length, 61);
   assert.ok(entries.every((e) => e.price >= 1 && e.name.length <= 50));
   assert.ok(!defaultedPaths.includes('QuestRerolls.x10'));
   assert.equal(defaultedPaths.length, 0);
@@ -36,6 +36,9 @@ test('shipped catalog is valid, unique, and covers every product key', () => {
   assert.equal(entries.find((e) => e.path === 'QuestRerolls.x10').price, 135);
   assert.ok(entries.find((e) => e.path === 'GoldBottleCap' && e.price === 1500));
   assert.ok(!entries.some((e) => e.path.startsWith('RoPowers.6')));
+  assert.ok(!entries.some((e) => /Roulette|Lotto|Random-Shiny|Random-6x31|^PBSpins/.test(e.path)));
+  assert.throws(() => normalizeCatalog([{ path: 'BasicRoulette', name: 'Basic Roulette', price: 10 }]), /excluded from automatic creation/);
+  assert.throws(() => normalizeCatalog([{ path: 'RouletteSpinBasic', name: 'Roulette Spin Basic', price: 10 }]), /excluded from automatic creation/);
 });
 
 test('normalizeCatalog rejects duplicates and bad prices', () => {
@@ -73,7 +76,7 @@ test('syncDeveloperProducts creates, then reuses on re-run, and writes productid
         { path: 'Starter', name: 'Starter', price: 15 },
         { path: 'RoPowers.1.1', name: 'Ro Power: XP 1', price: 15 },
         { path: 'RoPowers.2.1', name: 'Ro Power: Hatch 1', price: 10 },
-        { path: 'QuestRerolls.x1', name: 'Quest Rerolls x1' },
+        { path: 'QuestRerolls.x1', name: 'Quest Rerolls x1', price: 15 },
       ],
     },
     placeIds: { git: { enabled: false } },

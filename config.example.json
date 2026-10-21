@@ -115,9 +115,9 @@
     "git": {
       "enabled": true,
       "repositoryPath": "",
-      "remoteRawUrl": "https://raw.githubusercontent.com/z1onkurt999-star/PlaceIdsRepo/main/placeids.json",
+      "remoteRawUrl": "https://raw.githubusercontent.com/rammy4upload/PlaceIdsRepo/main/placeids.json",
       "commitMessage": "Update place IDs",
-      "githubOwner": "z1onkurt999-star",
+      "githubOwner": "rammy4upload",
       "githubRepo": "PlaceIdsRepo",
       "githubBranch": "main",
       "githubFilePath": "placeids.json",
@@ -126,7 +126,7 @@
   },
   "developerProducts": {
     "enabled": true,
-    "apiKey": "OPTIONAL_OPEN_CLOUD_KEY_WITH_developer-product_READ_AND_WRITE",
+    "apiKey": "",
     "defaultPrice": 100,
     "githubFilePath": "productids.json",
     "outputPath": "/data/productids.json",

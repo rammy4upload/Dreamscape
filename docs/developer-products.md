@@ -1,25 +1,51 @@
-# Automatic developer products
+# Automatic developer-product IDs
 
-After every reupload (`--reupload`, `--normalupload`, `--fullupload`, `--pushplaceids`) the reuploader:
+This feature creates **fixed-reward** developer products for the currently configured universe, verifies the created IDs, and publishes a universe-stamped `productids.json` to the same GitHub repository used for `placeids.json`. The game reads the map through `PlaceIdService:GetProductIds()` and overlays those IDs onto `assets.productId` only after the test-universe override has been applied.
 
-1. reads `assets/developerProducts.catalog.json` (76 products, mirrors `assets.productId`),
-2. creates any product that doesn't exist yet in the new universe (Open Cloud, matched by name, so re-runs never duplicate),
-3. verifies every ID is visible in the universe,
-4. writes `productids.json` and pushes it to the PlaceIdsRepo (same token/route as `placeids.json`).
+## What is synced
 
-The game reads that file (see `luau/`) and overlays it on `assets.productId`.
+`assets/developerProducts.catalog.json` contains the fixed-reward products, including currency packs, named items, named Pokémon/variants, rerolls, and fixed-duration powerups. Paid spin tokens, roulette/lottery purchases, and random-reward products are intentionally excluded from automated creation. Their existing hardcoded `assets.productId` values remain untouched by the merge. Review Roblox's randomized virtual item policy before designing any random-reward monetization.
 
-Run it alone: `npm run syncproducts` (errors are shown instead of swallowed).
+## Run manually
 
-## Required Open Cloud key scopes
-`developer-product:read` + `developer-product:write` on the experience. Put the key in
-`developerProducts.apiKey`, or the reuploader falls back to the key it already uses for publishing
-(which must then have those scopes too). Without them: sync logs a warning and the reupload continues.
+```bash
+npm run syncproducts
+```
 
-## Catalog
-`path` mirrors the Lua table (`RoPowers.2.1` = `assets.productId.RoPowers[2][1]`). Entries without a
-`price` use `developerProducts.defaultPrice` (default 100) and log a warning.
+The CLI resolves the current universe, creates products missing by name, rechecks products after uncertain create responses to reduce duplicate risk, verifies created IDs, and publishes the output map.
 
-## Config (`developerProducts`)
-`enabled` (default true) · `apiKey` · `defaultPrice` · `catalogPath` · `outputPath` · `githubFilePath`
-(default `productids.json`) · `commitMessage` · `required` (true = fail the reupload if sync fails)
+## Trigger from Railway
+
+Set `API_KEY` (the Railway endpoint key), `ROBLOX_DEVELOPER_PRODUCTS_API_KEY` (Roblox Open Cloud key), and `GITHUB_TOKEN` (GitHub Contents read/write access). The Roblox Open Cloud key must have `developer-product:read` and `developer-product:write` scopes for the target universe. In `/data/config.json`, set `accountPool.primary.experienceId` to the target **universe ID** and set `placeIds.git.githubOwner`, `githubRepo`, and `githubBranch` to the same repository and branch used by `PlaceIdService` (the included Lua file defaults to `rammy4upload/PlaceIdsRepo`, branch `main`).
+
+Then call the authenticated endpoint:
+
+```bash
+curl -X POST "https://YOUR-RAILWAY-DOMAIN/api/developer-products/sync" \
+  -H "Authorization: Bearer YOUR_RAILWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+The endpoint rejects concurrent requests within the same server process. It never accepts a universe ID supplied by the caller; it uses the configured target so a caller cannot redirect product creation to another universe.
+
+## Roblox installation
+
+See [`roblox-integration/README.md`](../roblox-integration/README.md). Put `AssetsInit` in `ReplicatedStorage`, `PlaceIdService` and the init Script under `ServerScriptService.AutoReuploader`, and the sync LocalScript in `StarterPlayerScripts`. Merge the overlay block into your existing `Assets` ModuleScript if you do not want to replace that entire module. Keep `PlaceIdService` server-only.
+
+The GitHub repo must be public for the included raw-GitHub loader to work without a token in your game. Do not commit a GitHub or Open Cloud API key into a public repository or a replicated ModuleScript.
+
+## Purchase granting
+
+Creating IDs and loading them does not grant purchased rewards. Use `MarketplaceService:PromptProductPurchase` to prompt a developer product, then route receipts through your experience's **single** `MarketplaceService.ProcessReceipt` callback. Do not use `PromptProductPurchaseFinished` as proof of payment. Keep your existing game reward code; adapt it using `DeveloperProductPurchaseRouter.ProcessFixedRewardReceipt` as documented in the Roblox integration README. The existing product-reward handler is experience-specific and is not replaced automatically by this repository.
+
+## Catalogue configuration
+
+- `developerProducts.enabled`: set to `false` to skip creation.
+- `developerProducts.apiKey`: optional Open Cloud key stored in config; prefer Railway variable `ROBLOX_DEVELOPER_PRODUCTS_API_KEY`.
+- `developerProducts.defaultPrice`: default for catalog entries missing a price; shipped entries have explicit prices.
+- `developerProducts.outputPath`: local JSON output path.
+- `developerProducts.githubFilePath`: file path published inside the configured GitHub repo (default `productids.json`).
+- `developerProducts.required`: if `true`, sync failures fail the upload; otherwise uploads continue with a warning.
+
+The payload includes `universeId` and `productids`. The Roblox loader refuses to apply a mapping stamped for a different universe and keeps the built-in IDs instead.

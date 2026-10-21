@@ -21,6 +21,7 @@ import { log, safeErrorMessage } from '../src/shared/structuredLogger.js';
 import { installConsoleRedaction, registerSecrets } from '../src/shared/consoleRedaction.js';
 import { requireDashboardAuth } from './middleware/auth.js';
 import productsRouter from './routes/products.js';
+import developerProductsRouter from './routes/developerProducts.js';
 import codesRouter from './routes/codes.js';
 import autoreuploaderRouter, { tasks, resolveTaskPrompt } from './routes/autoreuploader.js';
 import placeidsRouter from './routes/placeids.js';
@@ -91,6 +92,7 @@ app.get('/api/health', requireDashboardAuth, async (_req, res) => {
 
 app.use('/api/integration', integrationRouter);
 app.use('/api/products', productsRouter);
+app.use('/api/developer-products', developerProductsRouter);
 app.use('/api/codes', codesRouter);
 app.use('/api/placeids', placeidsRouter);
 app.use('/api/autoreuploader', autoreuploaderRouter);
@@ -118,6 +120,7 @@ const server = app.listen(serverConfig.port, () => {
   console.log(`[server] Listening on port ${serverConfig.port}`);
   console.log(`[server] Dashboard: http://localhost:${serverConfig.port}`);
   console.log(`[server] Product API: POST /api/products/resolve`);
+  console.log(`[server] Developer product sync: POST /api/developer-products/sync`);
   logDeploymentStatus();
 });
 
