@@ -1,7 +1,7 @@
 {
   "_template": true,
   "_notice": "TEMPLATE ONLY: IDs 1..N are placeholders, NOT real Roblox Developer Product IDs. Do not use for purchases. Run POST /api/developer-products/sync to replace this file with real IDs for your universe.",
-  "universeId": 0,
+  "universeId": 83489293813738,
   "productids": {
     "Starter": 1,
     "TenBP": 2,
