@@ -1,7 +1,7 @@
 {
   "_template": true,
-  "_notice": "TEMPLATE ONLY: IDs 1..N are placeholders, NOT real Roblox Developer Product IDs. Do not use for purchases. Run POST /api/developer-products/sync to replace this file with real IDs for your universe.",
-  "universeId": 83489293813738,
+  "_notice": "TEMPLATE ONLY: IDs 1..64 are placeholders, NOT real Roblox Developer Product IDs. Do not use for purchases. Run POST /api/developer-products/sync to replace this file with real IDs for your universe.",
+  "universeId": 0,
   "productids": {
     "Starter": 1,
     "TenBP": 2,
@@ -29,57 +29,60 @@
     "MewtwoniteShadowY": 24,
     "TixPurchase": 25,
     "ShadowMewtwo": 26,
-    "Cinderace-Pirate": 27,
-    "Xerneas-Galaxy": 28,
-    "Shadow-Lugia": 29,
-    "Mewtwo-Shadow": 30,
-    "Lunala-H": 31,
-    "Shinifier": 32,
-    "SilverBottleCap": 33,
-    "GoldBottleCap": 34,
-    "Necrozma-Dialga": 35,
-    "Necrozma-Yveltal": 36,
-    "Necrozma-Zekrom": 37,
-    "Necrozma-Palkia": 38,
-    "Necrozma-Groudon": 39,
-    "Necrozma-Kyogre": 40,
-    "Necrozma-Zygarde": 41,
-    "Necrozma-Rayquaza": 42,
-    "Necrozma-HoOh": 43,
-    "Necrozma-Giratina": 44,
-    "Necrozma-Xerneas": 45,
-    "Necrozma-Reshiram": 46,
-    "Necrozma-Lugia": 47,
-    "Ho-Oh-Dark": 48,
+    "Random-Shiny": 27,
+    "Random-6x31": 28,
+    "Random-Shiny-6x31": 29,
+    "Cinderace-Pirate": 30,
+    "Xerneas-Galaxy": 31,
+    "Shadow-Lugia": 32,
+    "Mewtwo-Shadow": 33,
+    "Lunala-H": 34,
+    "Shinifier": 35,
+    "SilverBottleCap": 36,
+    "GoldBottleCap": 37,
+    "Necrozma-Dialga": 38,
+    "Necrozma-Yveltal": 39,
+    "Necrozma-Zekrom": 40,
+    "Necrozma-Palkia": 41,
+    "Necrozma-Groudon": 42,
+    "Necrozma-Kyogre": 43,
+    "Necrozma-Zygarde": 44,
+    "Necrozma-Rayquaza": 45,
+    "Necrozma-HoOh": 46,
+    "Necrozma-Giratina": 47,
+    "Necrozma-Xerneas": 48,
+    "Necrozma-Reshiram": 49,
+    "Necrozma-Lugia": 50,
+    "Ho-Oh-Dark": 51,
     "RoPowers": [
       [
-        49,
-        50
+        52,
+        53
       ],
       [
-        51,
-        52
+        54,
+        55
       ],
       [
-        53,
-        54
-      ],
-      [
-        55,
-        56
-      ],
-      [
+        56,
         57
+      ],
+      [
+        58,
+        59
+      ],
+      [
+        60
       ],
       [],
       [
-        58
+        61
       ]
     ],
     "QuestRerolls": {
-      "x1": 59,
-      "x3": 60,
-      "x10": 61
+      "x1": 62,
+      "x3": 63,
+      "x10": 64
     }
   }
 }

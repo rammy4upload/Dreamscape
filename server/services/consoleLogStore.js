@@ -4,7 +4,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { dataPath, ensureDataDir } from '../config.js';
 import { broadcast } from './wsHub.js';
-import { atomicWriteFile, atomicWriteJson } from '../../src/shared/atomicStore.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '../..');
@@ -56,7 +55,7 @@ function trimBuffer() {
 }
 
 function writeLogFile() {
-  atomicWriteFile(logPath(), buffer, { backup: true });
+  fs.writeFileSync(logPath(), buffer, 'utf8');
 }
 
 function persistBuffer() {
@@ -85,7 +84,11 @@ export function initDashboardConsole() {
     const shortId = currentDeployId.slice(0, 12);
     buffer = `[dashboard] Console reset for deploy ${shortId}\n`;
     persistBuffer();
-    atomicWriteJson(metaPath(), { deployId: currentDeployId, resetAt: new Date().toISOString() }, { backup: true });
+    fs.writeFileSync(
+      metaPath(),
+      JSON.stringify({ deployId: currentDeployId, resetAt: new Date().toISOString() }, null, 2),
+      'utf8'
+    );
   } else {
     try {
       buffer = fs.readFileSync(logPath(), 'utf8');

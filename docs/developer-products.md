@@ -1,12 +1,12 @@
 # Automatic developer-product IDs
 
-This feature creates **fixed-reward** developer products for the currently configured universe, verifies the created IDs, and publishes a universe-stamped `productids.json` to the same GitHub repository used for `placeids.json`. The game reads the map through `PlaceIdService:GetProductIds()` and overlays those IDs onto `assets.productId` only after the test-universe override has been applied.
+This feature creates/reuses every product defined in `assets/developerProducts.catalog.json` for the configured universe, verifies IDs, and publishes a universe-stamped `productids.json` to the same GitHub repository used for `placeids.json`. This sync creates product metadata; it does not replace the game’s reward logic. The game reads the map through `PlaceIdService:GetProductIds()` and overlays those IDs onto `assets.productId` only after the test-universe override has been applied.
 
-The repository contains a root-level `productids.json` template with 61 sequential placeholder values (`1` through `61`) so the expected shape is visible in GitHub before the first sync. It is stamped with `universeId: 0` and `_template: true`; the Roblox loader explicitly refuses to apply it. These are **not real Roblox product IDs**. Run the authenticated sync endpoint or `npm run syncproducts` to replace the template with actual IDs. A successful Railway response must report `published: true` for the GitHub file to be updated.
+The repository contains a root-level `productids.json` template with 64 sequential placeholder values (`1` through `64`) so the expected shape is visible in GitHub before the first sync. Those values are never accepted as runtime IDs. The catalogue has legacy IDs for existing products; a legacy ID is reused only if Roblox confirms it belongs to the selected target universe. Known placeholder product IDs (`676767` and `67676767`) are omitted from the Lua defaults and generated as fresh products instead. It is stamped with `universeId: 0` and `_template: true`; the Roblox loader explicitly refuses to apply it. These are **not real Roblox product IDs**. Run the authenticated sync endpoint or `npm run syncproducts` to replace the template with actual IDs. The API and explicit `--syncproducts` command now fail when GitHub publication fails; they will not report success with only a local copy. A successful Railway response must report `published: true`.
 
 ## What is synced
 
-`assets/developerProducts.catalog.json` contains the fixed-reward products, including currency packs, named items, named Pokémon/variants, rerolls, and fixed-duration powerups. Paid spin tokens, roulette/lottery purchases, and random-reward products are intentionally excluded from automated creation. Their existing hardcoded `assets.productId` values remain untouched by the merge. Review Roblox's randomized virtual item policy before designing any random-reward monetization.
+`assets/developerProducts.catalog.json` includes currency packs, named items, named Pokémon/variants, the three placeholder `Random-*` products, RO-Powers, and quest rerolls. Paid spin tokens, roulette, and lottery products remain intentionally excluded from automated creation. The sync supplies IDs and product metadata only; your existing single receipt handler must still grant the actual rewards, and random-reward monetization must comply with Roblox policy.
 
 ## Run manually
 
@@ -18,7 +18,7 @@ The CLI resolves the current universe, creates products missing by name, recheck
 
 ## Trigger from Railway
 
-Set `API_KEY` (the Railway endpoint key), `ROBLOX_DEVELOPER_PRODUCTS_API_KEY` (Roblox Open Cloud key), and `GITHUB_TOKEN` (GitHub Contents read/write access). The Roblox Open Cloud key must have `developer-product:read` and `developer-product:write` scopes for the target universe. In `/data/config.json`, set `accountPool.primary.experienceId` to the target **universe ID** and set `placeIds.git.githubOwner`, `githubRepo`, and `githubBranch` to the same repository and branch used by `PlaceIdService` (the included Lua file defaults to `rammy4upload/PlaceIdsRepo`, branch `main`).
+Set `API_KEY` (the Railway endpoint key), `ROBLOX_DEVELOPER_PRODUCTS_API_KEY` (Roblox Open Cloud key with `developer-product:read` and `developer-product:write` for the target universe), and `GITHUB_TOKEN` (GitHub Contents read/write access). The CLI also reads `ROBLOX_DEVELOPER_PRODUCTS_API_KEY`; do not rely on the place-publishing key unless it has these scopes. The Roblox Open Cloud key must have `developer-product:read` and `developer-product:write` scopes for the target universe. In `/data/config.json`, set `accountPool.primary.experienceId` to the target **universe ID** and set `placeIds.git.githubOwner`, `githubRepo`, and `githubBranch` to the same repository and branch used by `PlaceIdService` (the included Lua file defaults to `lagingtalo72-cloud/Respi`, branch `main`).
 
 Then call the authenticated endpoint:
 
@@ -50,4 +50,7 @@ Creating IDs and loading them does not grant purchased rewards. Use `Marketplace
 - `developerProducts.githubFilePath`: file path published inside the configured GitHub repo (default `productids.json`).
 - `developerProducts.required`: if `true`, sync failures fail the upload; otherwise uploads continue with a warning.
 
-The payload includes `universeId` and `productids`. The Roblox loader refuses to apply a mapping stamped for a different universe and keeps the built-in IDs instead.
+The payload includes `universeId`, `productids`, and `productDefinitions` (names/prices used for future syncs). The extra definitions also keep the generated file compatible with the older template-based sync service. The Roblox loader only applies `productids`, refuses a mapping stamped for a different universe, and keeps built-in IDs instead.
+
+
+The catalogue includes the three placeholder products `Random-Shiny`, `Random-6x31`, and `Random-Shiny-6x31`. Their actual rewards are still delivered by the game’s existing single `MarketplaceService.ProcessReceipt` → `pd:onDevProductPurchased(productId)` path. Do not add a second receipt callback or use `PromptProductPurchaseFinished` to grant rewards. Roulette, lottery, and paid-spin products are intentionally managed separately.

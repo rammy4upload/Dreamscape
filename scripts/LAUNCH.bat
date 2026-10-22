@@ -2,7 +2,7 @@
 setlocal EnableExtensions EnableDelayedExpansion
 
 REM ===============================
-REM Monster Brick Bronze AutoReuploader — interactive launcher
+REM Pokemon Brick Bronze AutoReuploader — interactive launcher
 REM ===============================
 
 set "ROOT=%~dp0.."
@@ -11,7 +11,7 @@ set "DEFCFG=!ROOT!config.json"
 :menu
 cls
 echo ===============================
-echo  Monster Brick Bronze AutoReuploader
+echo  Pokemon Brick Bronze AutoReuploader
 echo ===============================
 echo  Config default: !DEFCFG!
 echo.

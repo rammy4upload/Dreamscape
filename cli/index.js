@@ -145,7 +145,7 @@ Commands:
   --pushplaceids   Push placeids.json only using config.experience.places.*.placeId
                    and placeIds.git settings (git add/commit/push).
   --syncproducts   Create any missing developer products (assets/developerProducts.catalog.json)
-                   in the current universe and push productids.json to the PlaceIdsRepo.
+                   in the current universe and push productids.json to the Respi.
   --rbxlupload     Open Cloud RBXL publish to Main / Battle / Trade only.
   --addfriends     Friend requests/accepts only, then opens Roblox Studio on the Main place so you
                    can grant collaborators manually. No automatic Team Create grants, no Open Cloud

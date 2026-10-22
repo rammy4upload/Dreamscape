@@ -37,6 +37,6 @@ RBXL SOURCE FIX (added):
 
 
 PLACE ID SYNC ROOT CAUSE (added):
-- The uploaded target places in the latest log (Main=94924486769688, Battle=106563467714705, Trade=90670750620211) do not match the PlaceIdsRepo values you shared (Main=83489293813738, Battle=101608462825327, Trade=110117993068660). A PlaceIdFetch script that reads the stale GitHub file will keep entering the old places.
+- The uploaded target places in the latest log (Main=94924486769688, Battle=106563467714705, Trade=90670750620211) do not match the Respi values you shared (Main=83489293813738, Battle=101608462825327, Trade=110117993068660). A PlaceIdFetch script that reads the stale GitHub file will keep entering the old places.
 - The exporter now explicitly warns if placeIds.git.enabled=false instead of silently writing only /data/placeids.json. Successful GitHub export prints the exact new ID mapping.
-- In the Railway dashboard config, enable placeIds.git.enabled and set placeIds.git.required=true if this repository is the runtime source of truth. Set githubOwner=z1onkurt999-star, githubRepo=PlaceIdsRepo, githubBranch=main, githubFilePath=placeids.json, and add Railway variable PLACEIDS_GITHUB_TOKEN (or GITHUB_TOKEN) with Contents: Read and Write access. Do not paste the token into chat.
+- In the Railway dashboard config, enable placeIds.git.enabled and set placeIds.git.required=true if this repository is the runtime source of truth. Set githubOwner=lagingtalo72-cloud, githubRepo=Respi, githubBranch=main, githubFilePath=placeids.json, and add Railway variable PLACEIDS_GITHUB_TOKEN (or GITHUB_TOKEN) with Contents: Read and Write access. Do not paste the token into chat.

@@ -1,14 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import { ensureDataDir, serverConfig, loadServiceConfig } from '../config.js';
-import { atomicWriteFile } from '../../src/shared/atomicStore.js';
 import { saveConfig, loadConfig } from './configStore.js';
 
 const ASSET_KINDS = {
-  rbxl: { filename: 'game.rbxl', configKey: 'experience.rbxlPath', mime: 'application/octet-stream', maxBytes: 2 * 1024 * 1024 * 1024 },
-  icon: { filename: 'icon.png', configKey: 'experience.iconPath', mime: 'image/png', maxBytes: 2 * 1024 * 1024 },
-  thumbnail: { filename: 'thumbnail.png', configKey: 'experience.thumbnailPath', mime: 'image/png', maxBytes: 4 * 1024 * 1024 },
-  tshirt: { filename: 'tshirt-template.png', configKey: null, mime: 'image/png', maxBytes: 4 * 1024 * 1024 },
+  rbxl: { filename: 'game.rbxl', configKey: 'experience.rbxlPath', mime: 'application/octet-stream' },
+  icon: { filename: 'icon.png', configKey: 'experience.iconPath', mime: 'image/png' },
+  thumbnail: { filename: 'thumbnail.png', configKey: 'experience.thumbnailPath', mime: 'image/png' },
+  tshirt: { filename: 'tshirt-template.png', configKey: null, mime: 'image/png' },
 };
 
 function resolveProjectRoot() {
@@ -56,13 +55,10 @@ function resolveConfiguredPath(configuredPath) {
   if (!trimmed) {
     return null;
   }
-  let resolved = path.isAbsolute(trimmed) ? path.resolve(trimmed) : path.resolve(resolveProjectRoot(), trimmed);
-  const dataRoot = path.resolve(serverConfig.dataDir);
-  const projectRoot = resolveProjectRoot();
-  const inData = resolved === dataRoot || resolved.startsWith(`${dataRoot}${path.sep}`);
-  const inProject = resolved === projectRoot || resolved.startsWith(`${projectRoot}${path.sep}`);
-  if (!inData && !inProject) return null;
-  return resolved;
+  if (path.isAbsolute(trimmed)) {
+    return trimmed;
+  }
+  return path.resolve(resolveProjectRoot(), trimmed);
 }
 
 export function getAssetKind(kind) {
@@ -117,11 +113,9 @@ function updateConfigPath(kind, absolutePath) {
 
 export function saveAsset(kind, buffer) {
   ensureDataDir();
-  const spec = getAssetKind(kind);
-  if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error('Asset payload is empty');
-  if (buffer.length > spec.maxBytes) throw new Error(`Asset exceeds maximum size for ${kind}`);
   const target = dataDirFile(kind);
-  atomicWriteFile(target, buffer, { backup: true, mode: 0o600, encoding: undefined });
+  fs.writeFileSync(target, buffer);
+  const spec = getAssetKind(kind);
   updateConfigPath(kind, target);
   return {
     kind,

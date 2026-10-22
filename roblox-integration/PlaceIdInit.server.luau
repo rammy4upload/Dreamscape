@@ -1,5 +1,5 @@
 -- ServerScriptService.PlaceIdInit (Script)
--- Reads placeids.json and productids.json from PlaceIdsRepo before Assets loads.
+-- Reads placeids.json and productids.json from Respi before Assets loads.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -39,6 +39,13 @@ local function snapshot()
 end
 
 getAssetList.OnServerInvoke = function(_player)
+	-- PlaceIdInit performs HTTP requests before marking the module initialized.
+	-- A client may invoke this RemoteFunction during that window, so wait briefly
+	-- rather than returning a false/uninitialized snapshot.
+	local deadline = os.clock() + 20
+	while not assetsModule.INITIALIZED and os.clock() < deadline do
+		task.wait(0.1)
+	end
 	return snapshot()
 end
 
@@ -88,10 +95,19 @@ local function installAssets()
 	updateEvent:FireAllClients(snapshot())
 end
 
-installAssets()
-
+-- Connect before the HTTP reads below. Players can join while installAssets() yields.
 Players.PlayerAdded:Connect(function(player)
-	updateEvent:FireClient(player, snapshot())
+	task.spawn(function()
+		local deadline = os.clock() + 25
+		while not assetsModule.INITIALIZED and os.clock() < deadline do
+			task.wait(0.1)
+		end
+		if player.Parent then
+			updateEvent:FireClient(player, snapshot())
+		end
+	end)
 end)
+
+installAssets()
 
 print("--- PLACE + DEVELOPER PRODUCT ID SYNC READY ---")

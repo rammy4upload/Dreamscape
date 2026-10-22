@@ -253,31 +253,31 @@ assets.productId = {
 	PlatinumRoulette = 2679032862,   --// 175 R$
 	ShinyRoulette = 2680005309,      --// 100 R$
 	SuperShinyRoulette = 2679033479, --// 350 R$
-	["Random-Shiny-6x31"] = 676767,--// 399 R$
-	["Random-6x31"] = 676767,    --// 150 R$
-	["Random-Shiny"] = 676767,   --// 100 R$
-	["Cinderace-Pirate"] = 67676767,--// 100 R$
-	["Xerneas-Galaxy"] = 67676767, --// 500 R$
-	["Shadow-Lugia"] = 676767,   --// 500 R$
-	["Mewtwo-Shadow"] = 676767,  --// 500 R$
-	["Lunala-H"] = 67676767,       --// 500 R$
-	["Shinifier"] = 67676767,      --// 750 R$
-	["SilverBottleCap"] = 67676767,--// 400 R$
-	["GoldBottleCap"] = 67676767,  --// 1500 R$
-	["Necrozma-Dialga"] = 67676767,--// 1000 R$		
-	["Necrozma-Yveltal"] = 67676767,--// 1000 R$
-	["Necrozma-Zekrom"] = 67676767,--// 1000 R$
-	["Necrozma-Palkia"] = 67676767,--// 1000 R$
-	["Necrozma-Groudon"] = 67676767,--// 1000 R$
-	["Necrozma-Kyogre"] = 67676767,--// 1000 R$
-	["Necrozma-Zygarde"] = 67676767,--// 1000 R$
-	["Necrozma-Rayquaza"] = 67676767,--// 1000 R$
-	["Necrozma-HoOh"] = 67676767,--// 1000 R$
-	["Necrozma-Giratina"] = 67676767,--// 1000 R$
-	["Necrozma-Xerneas"] = 67676767,--// 1000 R$
-	["Necrozma-Reshiram"] = 67676767,--// 1000 R$
-	["Necrozma-Lugia"] = 67676767,--// 1000 R$
-	["Ho-Oh-Dark"] = 676767, --//450
+	["Random-Shiny-6x31"] = nil, -- real ID comes from productids.json
+	["Random-6x31"] = nil, -- real ID comes from productids.json
+	["Random-Shiny"] = nil, -- real ID comes from productids.json
+	["Cinderace-Pirate"] = nil, -- real ID comes from productids.json
+	["Xerneas-Galaxy"] = nil, -- real ID comes from productids.json
+	["Shadow-Lugia"] = nil, -- real ID comes from productids.json
+	["Mewtwo-Shadow"] = nil, -- real ID comes from productids.json
+	["Lunala-H"] = nil, -- real ID comes from productids.json
+	["Shinifier"] = nil, -- real ID comes from productids.json
+	["SilverBottleCap"] = nil, -- real ID comes from productids.json
+	["GoldBottleCap"] = nil, -- real ID comes from productids.json
+	["Necrozma-Dialga"] = nil, -- real ID comes from productids.json
+	["Necrozma-Yveltal"] = nil, -- real ID comes from productids.json
+	["Necrozma-Zekrom"] = nil, -- real ID comes from productids.json
+	["Necrozma-Palkia"] = nil, -- real ID comes from productids.json
+	["Necrozma-Groudon"] = nil, -- real ID comes from productids.json
+	["Necrozma-Kyogre"] = nil, -- real ID comes from productids.json
+	["Necrozma-Zygarde"] = nil, -- real ID comes from productids.json
+	["Necrozma-Rayquaza"] = nil, -- real ID comes from productids.json
+	["Necrozma-HoOh"] = nil, -- real ID comes from productids.json
+	["Necrozma-Giratina"] = nil, -- real ID comes from productids.json
+	["Necrozma-Xerneas"] = nil, -- real ID comes from productids.json
+	["Necrozma-Reshiram"] = nil, -- real ID comes from productids.json
+	["Necrozma-Lugia"] = nil, -- real ID comes from productids.json
+	["Ho-Oh-Dark"] = nil, -- real ID comes from productids.json
 
 	RoPowers = {
 		{1822000015, 1822000137},       --// 15 R$, 20 R$ (XP) 1-2
@@ -416,7 +416,14 @@ end
 
 if type(assetsInit.ProductIds) == "table" then
 	overlay(assets.productId, assetsInit.ProductIds)
-end
 
+	-- Older test-place scripts call this product BuyTix; the production table calls it TixPurchase.
+	-- Keep both keys synchronized with the same universe-specific product ID.
+	local tixId = assetsInit.ProductIds.TixPurchase or assetsInit.ProductIds.BuyTix
+	if tixId then
+		assets.productId.TixPurchase = tixId
+		assets.productId.BuyTix = tixId
+	end
+end
 
 return assets

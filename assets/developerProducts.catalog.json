@@ -1,135 +1,176 @@
 {
-  "_comment": "Only fixed, clearly defined rewards are auto-created. Paid spins, roulette/lottery, and randomized-reward products are intentionally excluded and retain their existing hardcoded IDs in Assets. 'path' mirrors assets.productId in Assets (dot = nested table; numeric segments are 1-based).",
+  "_comment": "Automatically syncs product IDs for the fixed reward, custom, random-reward, RO-Power, and quest-reroll items listed here. Paid spins, roulette, and lottery are intentionally not auto-created. Existing legacyId values are reused only when the target universe confirms that ID. RO-Power prices match the in-game shop values.",
   "products": [
     {
       "path": "Starter",
       "name": "Starter",
-      "price": 15
+      "price": 15,
+      "legacyId": 1821737304
     },
     {
       "path": "TenBP",
       "name": "Ten BP",
-      "price": 10
+      "price": 10,
+      "legacyId": 1821994564
     },
     {
       "path": "FiftyBP",
       "name": "Fifty BP",
-      "price": 30
+      "price": 30,
+      "legacyId": 1821994648
     },
     {
       "path": "TwoHundredBP",
       "name": "Two Hundred BP",
-      "price": 75
+      "price": 75,
+      "legacyId": 1821994733
     },
     {
       "path": "TwoHundredAndFiftyBP",
       "name": "Two Hundred And Fifty BP",
-      "price": 80
+      "price": 80,
+      "legacyId": 3713416812
     },
     {
       "path": "FiveHundredBP",
       "name": "Five Hundred BP",
-      "price": 130
+      "price": 130,
+      "legacyId": 3713416893
     },
     {
       "path": "OneThousandBP",
       "name": "One Thousand BP",
-      "price": 200
+      "price": 200,
+      "legacyId": 3713416926
     },
     {
       "path": "TwoThousandBP",
       "name": "Two Thousand BP",
-      "price": 200
+      "price": 200,
+      "legacyId": 1821994890
     },
     {
       "path": "UMV1",
       "name": "UMV1",
-      "price": 5
+      "price": 5,
+      "legacyId": 1821994986
     },
     {
       "path": "UMV3",
       "name": "UMV3",
-      "price": 10
+      "price": 10,
+      "legacyId": 1821995095
     },
     {
       "path": "UMV6",
       "name": "UMV6",
-      "price": 15
+      "price": 15,
+      "legacyId": 1821995194
     },
     {
       "path": "_10kP",
       "name": "10k P",
-      "price": 10
+      "price": 10,
+      "legacyId": 1821995438
     },
     {
       "path": "_50kP",
       "name": "50k P",
-      "price": 40
+      "price": 40,
+      "legacyId": 1821995674
     },
     {
       "path": "_100kP",
       "name": "100k P",
-      "price": 75
+      "price": 75,
+      "legacyId": 1821995801
     },
     {
       "path": "_200kP",
       "name": "200k P",
-      "price": 120
+      "price": 120,
+      "legacyId": 1821995926
     },
     {
       "path": "AshGreninja",
       "name": "Ash Greninja",
-      "price": 150
+      "price": 150,
+      "legacyId": 1821996524
     },
     {
       "path": "DracoElectivire",
       "name": "Draco Electivire",
-      "price": 250
+      "price": 250,
+      "legacyId": 3295492297
     },
     {
       "path": "LugiaShadow",
       "name": "Lugia Shadow",
-      "price": 300
+      "price": 300,
+      "legacyId": 3536912009
     },
     {
       "path": "HoohDarkice",
       "name": "Hooh Darkice",
-      "price": 300
+      "price": 300,
+      "legacyId": 3536911854
     },
     {
       "path": "LucarioThief",
       "name": "Lucario Thief",
-      "price": 75
+      "price": 75,
+      "legacyId": 3536911555
     },
     {
       "path": "Hoverboard",
       "name": "Hoverboard",
-      "price": 10
+      "price": 10,
+      "legacyId": 1821996685
     },
     {
       "path": "MasterBall",
       "name": "Master Ball",
-      "price": 10
+      "price": 10,
+      "legacyId": 1821996621
     },
     {
       "path": "MewtwoniteShadowX",
       "name": "Mewtwonite Shadow X",
-      "price": 400
+      "price": 400,
+      "legacyId": 3564707678
     },
     {
       "path": "MewtwoniteShadowY",
       "name": "Mewtwonite Shadow Y",
-      "price": 400
+      "price": 400,
+      "legacyId": 3564707742
     },
     {
       "path": "TixPurchase",
       "name": "Tix Purchase",
-      "price": 125
+      "price": 125,
+      "legacyId": 1821996868
     },
     {
       "path": "ShadowMewtwo",
       "name": "Shadow Mewtwo",
-      "price": 500
+      "price": 500,
+      "legacyId": 3563562612
+    },
+    {
+      "path": "Random-Shiny",
+      "name": "Random Shiny",
+      "price": 100
+    },
+    {
+      "path": "Random-6x31",
+      "name": "Random 6x31",
+      "price": 150
+    },
+    {
+      "path": "Random-Shiny-6x31",
+      "name": "Random Shiny 6x31",
+      "price": 399
     },
     {
       "path": "Cinderace-Pirate",
@@ -244,67 +285,80 @@
     {
       "path": "RoPowers.1.1",
       "name": "Ro Power: XP Power 1",
-      "price": 15
+      "price": 25,
+      "legacyId": 1822000015
     },
     {
       "path": "RoPowers.1.2",
       "name": "Ro Power: XP Power 2",
-      "price": 20
+      "price": 40,
+      "legacyId": 1822000137
     },
     {
       "path": "RoPowers.2.1",
       "name": "Ro Power: Hatching Power 1",
-      "price": 10
+      "price": 25,
+      "legacyId": 1822000305
     },
     {
       "path": "RoPowers.2.2",
       "name": "Ro Power: Hatching Power 2",
-      "price": 15
+      "price": 40,
+      "legacyId": 1822000419
     },
     {
       "path": "RoPowers.3.1",
       "name": "Ro Power: Pokedollars Power 1",
-      "price": 20
+      "price": 25,
+      "legacyId": 1822000821
     },
     {
       "path": "RoPowers.3.2",
       "name": "Ro Power: Pokedollars Power 2",
-      "price": 35
+      "price": 40,
+      "legacyId": 1822001010
     },
     {
       "path": "RoPowers.4.1",
       "name": "Ro Power: EVs Power 1",
-      "price": 10
+      "price": 25,
+      "legacyId": 1822001143
     },
     {
       "path": "RoPowers.4.2",
       "name": "Ro Power: EVs Power 2",
-      "price": 15
+      "price": 40,
+      "legacyId": 1822001232
     },
     {
       "path": "RoPowers.5.1",
       "name": "Ro Power: Shiny Boost Power",
-      "price": 30
+      "price": 75,
+      "legacyId": 1822001378
     },
     {
       "path": "RoPowers.7.1",
       "name": "Ro Power: Legendaries Power",
-      "price": 45
+      "price": 99,
+      "legacyId": 1822001470
     },
     {
       "path": "QuestRerolls.x1",
       "name": "Quest Rerolls x1",
-      "price": 15
+      "price": 15,
+      "legacyId": 3716457274
     },
     {
       "path": "QuestRerolls.x3",
       "name": "Quest Rerolls x3",
-      "price": 45
+      "price": 45,
+      "legacyId": 3716459456
     },
     {
       "path": "QuestRerolls.x10",
       "name": "Quest Rerolls x10",
-      "price": 135
+      "price": 135,
+      "legacyId": 3716459552
     }
   ]
 }

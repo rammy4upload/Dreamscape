@@ -6,7 +6,7 @@ Roblox experience automation for **Monster Brick Bronze** copies: RBXL publish, 
 
 **Automatic Developer Product IDs:** [docs/developer-products.md](./docs/developer-products.md)
 
-The root [`productids.json`](./productids.json) starts as a **safe template** with placeholders `1`–`61`. Roblox ignores this template until the Railway sync replaces it with real product IDs for the configured universe.
+The root [`productids.json`](./productids.json) starts as a **safe template** with placeholders `1`–`64`. Roblox ignores this template until the Railway sync replaces it with real product IDs for the configured universe.
 
 | Quick start | |
 |-------------|---|

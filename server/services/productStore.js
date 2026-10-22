@@ -1,6 +1,5 @@
 import fs from 'fs';
 import { serverConfig, ensureDataDir } from '../config.js';
-import { atomicWriteJson, readJsonWithBackup } from '../../src/shared/atomicStore.js';
 
 function emptyStore() {
   return { products: {}, assetIndex: {} };
@@ -13,7 +12,7 @@ export function loadProductStore() {
     return emptyStore();
   }
   try {
-    return readJsonWithBackup(file);
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {
     return emptyStore();
   }
@@ -21,7 +20,7 @@ export function loadProductStore() {
 
 export function saveProductStore(store) {
   ensureDataDir();
-  atomicWriteJson(serverConfig.productStorePath(), store, { backup: true });
+  fs.writeFileSync(serverConfig.productStorePath(), JSON.stringify(store, null, 2));
 }
 
 export function getProductEntry(store, productKey) {

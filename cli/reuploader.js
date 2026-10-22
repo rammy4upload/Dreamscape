@@ -2826,9 +2826,12 @@ async function writePlaceIds(config, placeIds, { configPath = '' } = {}) {
  * Non-fatal by default so a product/scope problem can never abort a reupload.
  */
 async function syncProductsForUniverse(config, universeId, { configPath = '', strict = false } = {}) {
-  const apiKey = trimConfigSecret(config.developerProducts?.apiKey) || resolveApiKey(config, 'Main');
+  const apiKey =
+    trimConfigSecret(process.env.ROBLOX_DEVELOPER_PRODUCTS_API_KEY) ||
+    trimConfigSecret(config.developerProducts?.apiKey) ||
+    resolveApiKey(config, 'Main');
   const run = strict ? syncDeveloperProducts : syncDeveloperProductsSafe;
-  return run(config, universeId, { apiKey, configPath });
+  return run(config, universeId, { apiKey, configPath, requirePublish: strict });
 }
 
 async function freshenExperienceMedia(experience) {

@@ -1,7 +1,6 @@
 import fs from 'fs';
 import path from 'path';
 import { ensureDataDir, serverConfig, dataPath } from '../config.js';
-import { atomicWriteJson, atomicWriteFile } from '../../src/shared/atomicStore.js';
 
 const CODES_LUA_FILE = () => dataPath('codes.lua');
 const CODES_JSON_FILE = () => dataPath('codes.json');
@@ -469,8 +468,8 @@ export function saveCodesData(payload) {
     functionBody: formatFunctionBodyForEditor(code.functionBody),
   }));
 
-  atomicWriteJson(CODES_JSON_FILE(), { codes: normalized }, { backup: true });
-  atomicWriteFile(CODES_LUA_FILE(), serializeCodesLua(normalized), { backup: true });
+  fs.writeFileSync(CODES_JSON_FILE(), `${JSON.stringify({ codes: normalized }, null, 2)}\n`);
+  fs.writeFileSync(CODES_LUA_FILE(), serializeCodesLua(normalized));
   return { codes: normalized };
 }
 
